@@ -2,8 +2,9 @@
 #include "application/detail/EditorValidation.h"
 #include "application/detail/EditorModules.h"
 #include "application/detail/EditorConfiguration.h"
-#include "application/detail/EditorQueries.h"
+#include "application/detail/EditorViewTools.h"
 #include "application/detail/EditorDrafts.h"
+#include "application/detail/EditorQueries.h"
 #include "application/DocumentDataCallbacks.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
@@ -33,7 +34,6 @@ void SelectedConfiguration::Clear() {
     m_Current = {};
     m_Current.dataTypes = DefaultDocumentDataRegistry();
 }
-
 EditorDocumentData BorrowDocumentData(const DocumentDataRecord &record) {
     return {sizeof(EditorDocumentData), record.version, record.owner, record.bytes.data(), uint32_t(record.bytes.size()),
             {record.objects.data(), uint32_t(record.objects.size())}};
@@ -339,15 +339,11 @@ struct EditorApplication::State {
     std::thread::id thread = std::this_thread::get_id();
     RegisteredModules modules;
     SelectedConfiguration configuration;
+    // Borrowed descriptor pointers are released before modules. Query storage
+    // outlives drafts and their queued previews during final member teardown.
     QueryState queries;
     const EditorValueEditors *drawingValues = nullptr;
-    struct ToolState {
-        std::string type, choice, fallback;
-        const EditorToolDesc *handler = nullptr;
-        bool entered = false, dispatching = false, captured = false, reset = false, focused = false;
-    };
-    std::map<EditorView, ToolState> toolStates;
-    EditorView restoringView = 0, inputView = 0;
+    ViewTools tools;
     bool active = false, available = false, writable = false, stopped = false;
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
     unsigned readOnlyCallbacks = 0, checking = 0;
@@ -1147,8 +1143,7 @@ void *EditorApplication::CreateView(const EditorViewDesc &desc, EditorView id) {
     --s.drawing;
     --s.readOnlyCallbacks;
     if (data) {
-        s.toolStates[id].type = String(desc.id);
-        s.toolStates[id].fallback = String(desc.defaultTool);
+        s.tools.Open(id, String(desc.id), String(desc.defaultTool));
         if (desc.defaultTool.size) RestoreTool(id, String(desc.defaultTool));
     }
     return data;
@@ -1232,12 +1227,10 @@ EditorStatus EditorApplication::RestoreViewState(const EditorViewDesc &desc, voi
     const EditorRequest request{scope, values.data(), uint32_t(values.size())};
     ++s.drawing;
     ++s.readOnlyCallbacks;
-    const auto previousView = s.restoringView;
-    s.restoringView = scope.view;
+    auto restoring = s.tools.Restoring(scope.view);
     EditorStatus status;
     try { status = desc.restoreState(data, Host(), &request); }
     catch (...) { status = EDITOR_ERROR; }
-    s.restoringView = previousView;
     --s.readOnlyCallbacks;
     --s.drawing;
     return status;
@@ -1504,8 +1497,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         auto selected = s.configuration.Prepare(s.modules.Active(), configuration);
         const bool editing = !s.drafts.Empty() ||
             std::any_of(s.pending.begin(), s.pending.end(), [](const auto &p) { return bool(p.preview); });
-        const bool toolActive = std::any_of(s.toolStates.begin(), s.toolStates.end(),
-            [](const auto &entry) { return entry.second.captured || entry.second.dispatching; });
+        const bool toolActive = s.tools.Busy();
         if ((editing || toolActive) && !s.configuration.EditingProvidersUnchanged(selected))
             throw std::invalid_argument("Finish active edits and tools before replacing their providers");
         if (s.configuration.Get().documentData != selected.documentData) {
@@ -1538,7 +1530,7 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
         return;
     const bool documentChanged = s.document != document;
     if (documentChanged) {
-        for (const auto &entry : s.toolStates) CancelTool(entry.first);
+        for (const auto &entry : s.tools.Entries()) CancelTool(entry.first);
         s.drafts.Clear();
         for (const auto &pending : s.pending) s.Complete(pending.operation, {EDITOR_STALE});
         s.pending.clear();
@@ -1565,8 +1557,7 @@ uint64_t EditorApplication::Revision() const {
 }
 bool EditorApplication::HasEdits() const {
     return !m_State->drafts.Empty() || !m_State->pending.empty() ||
-           std::any_of(m_State->toolStates.begin(), m_State->toolStates.end(),
-                       [](const auto &entry) { return entry.second.captured; });
+           m_State->tools.Captured();
 }
 ObjectRef EditorApplication::EditTarget(EditorEdit edit) const {
     auto f = m_State->drafts.Find(edit);
@@ -1587,14 +1578,14 @@ void EditorApplication::CloseScope(EditorView view) {
     if (!s.Thread())
         return;
     CancelTool(view);
-    if (auto tool = s.toolStates.find(view);
-        tool != s.toolStates.end() && tool->second.handler && tool->second.entered) {
+    if (auto tool = s.tools.Find(view);
+        tool != nullptr && tool->handler && tool->entered) {
         EditorToolInput input{};
         input.size = sizeof(input);
         input.phase = EDITOR_TOOL_LEAVE;
         ToolInput(Scope(view), input);
     }
-    s.toolStates.erase(view);
+    s.tools.Close(view);
     s.scopes.erase(view);
     s.queries.CloseScope(view);
     s.drafts.CloseScope(view);
@@ -1857,7 +1848,7 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, EditorSco
 EditorStatus EditorApplication::BeginEdit(const std::string &property, const EditorRequest &request, EditorEdit &out) {
     auto &s = *m_State;
     out = 0;
-    if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
+    if (!s.Thread() || (s.tools.InputView() && request.scope.view != s.tools.InputView())) return EDITOR_REFUSED;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying()) return EDITOR_REFUSED;
     std::vector<EditorField> arguments;
     if (CopyEditorFields(arguments, request.values, request.count) != EDITOR_OK) return EDITOR_INVALID;
@@ -1877,7 +1868,7 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, const Edi
     State::Draft draft{request.scope, target, p, s.configuration.Get().commands.at(p.command), s.configuration.Get().editors.at(p.editor), *value, std::move(result.fields), s.configuration.Get().editors, std::move(arguments)};
     out = s.next++;
     draft.deferred = !s.pending.empty();
-    draft.toolOwned = s.inputView == request.scope.view && s.inputView != 0;
+    draft.toolOwned = s.tools.InputView() == request.scope.view && s.tools.InputView() != 0;
     s.drafts.Insert(out, std::move(draft));
     return EDITOR_OK;
 }
@@ -1885,7 +1876,7 @@ EditorStatus EditorApplication::BeginCommand(const std::string &id, const Editor
     auto &s = *m_State;
     out = 0;
     auto request = input;
-    if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
+    if (!s.Thread() || (s.tools.InputView() && request.scope.view != s.tools.InputView())) return EDITOR_REFUSED;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying() || !s.NativeReady() || !s.writable ||
         !s.drafts.Empty() || !s.pending.empty())
         return EDITOR_REFUSED;
@@ -1923,7 +1914,7 @@ EditorStatus EditorApplication::BeginCommand(const std::string &id, const Editor
     draft.arguments = std::move(fields);
     draft.commandOnly = true;
     out = s.next++;
-    draft.toolOwned = s.inputView == request.scope.view && s.inputView != 0;
+    draft.toolOwned = s.tools.InputView() == request.scope.view && s.tools.InputView() != 0;
     s.drafts.Insert(out, std::move(draft));
     return EDITOR_OK;
 }
@@ -1937,7 +1928,7 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &v
     const auto found = s.drafts.Find(edit);
     if (found == nullptr)
         return EDITOR_STALE;
-    if (s.inputView && found->scope.view != s.inputView) return EDITOR_REFUSED;
+    if (s.tools.InputView() && found->scope.view != s.tools.InputView()) return EDITOR_REFUSED;
     if (!s.Valid(found->scope) || (s.NativeReady() && !s.Current(found->object))) {
         s.RestorePreview(*found);
         s.drafts.Erase(edit);
@@ -1968,7 +1959,7 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit, EditorO
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying()) return EDITOR_REFUSED;
     auto found = s.drafts.Find(edit);
     if (found == nullptr) return EDITOR_STALE;
-    if (s.inputView && found->scope.view != s.inputView) return EDITOR_REFUSED;
+    if (s.tools.InputView() && found->scope.view != s.tools.InputView()) return EDITOR_REFUSED;
     if (!commit) {
         const bool restored = s.RestorePreview(*found);
         s.drafts.Erase(edit);
@@ -2314,45 +2305,43 @@ std::string EditorApplication::ActionView(const std::string &id) const {
 }
 std::string EditorApplication::ToolChoice(EditorView view) const {
     if (!m_State->Thread()) return {};
-    const auto found = m_State->toolStates.find(view);
-    return found == m_State->toolStates.end() ? std::string{} : found->second.choice;
+    const auto found = m_State->tools.Find(view);
+    return found == nullptr ? std::string{} : found->choice;
 }
 const EditorToolDesc *EditorApplication::ActiveTool(EditorView view) const {
     auto &s = *m_State;
     if (!s.Thread()) return nullptr;
-    const auto found = s.toolStates.find(view);
-    if (found == s.toolStates.end()) return nullptr;
-    const auto &state = found->second;
+    const auto found = s.tools.Find(view);
+    if (found == nullptr) return nullptr;
+    const auto &state = *found;
     const auto tool = s.configuration.Get().tools.find(state.choice.empty() ? state.fallback : state.choice);
     if (tool != s.configuration.Get().tools.end() && String(tool->second->view) == state.type) return tool->second;
     const auto fallback = s.configuration.Get().tools.find(state.fallback);
     return fallback == s.configuration.Get().tools.end() ? nullptr : fallback->second;
 }
 bool EditorApplication::ToolCaptured(EditorView view) const {
-    if (!m_State->Thread()) return false;
-    const auto found = m_State->toolStates.find(view);
-    return found != m_State->toolStates.end() && found->second.captured;
+    return m_State->Thread() && m_State->tools.Captured(view);
 }
 EditorStatus EditorApplication::SelectTool(EditorScope scope, const std::string &id) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.querying || s.checking || (s.readOnlyCallbacks && s.restoringView != scope.view))
+    if (!s.Thread() || !s.active || s.querying || s.checking || (s.readOnlyCallbacks && s.tools.RestoringView() != scope.view))
         return EDITOR_REFUSED;
     if (!s.Valid(scope, EDITOR_WORKSPACE) || scope.document != s.document) return EDITOR_STALE;
     const auto tool = s.configuration.Get().tools.find(id);
     if (tool == s.configuration.Get().tools.end()) return EDITOR_INVALID;
-    const auto source = s.toolStates.find(scope.view);
-    if (s.navigation && (source == s.toolStates.end() || source->second.type != String(tool->second->view))) {
+    const auto source = s.tools.Find(scope.view);
+    if (s.navigation && (source == nullptr || source->type != String(tool->second->view))) {
         const auto target = s.navigation->ActionView(String(tool->second->view), scope.view);
         if (!target) return EDITOR_REFUSED;
         scope = Scope(target);
     }
-    if (s.readOnlyCallbacks && s.restoringView != scope.view) return EDITOR_REFUSED;
-    auto found = s.toolStates.find(scope.view);
-    if (found == s.toolStates.end() || found->second.type != String(tool->second->view)) return EDITOR_REFUSED;
-    auto &state = found->second;
+    if (s.readOnlyCallbacks && s.tools.RestoringView() != scope.view) return EDITOR_REFUSED;
+    auto found = s.tools.Find(scope.view);
+    if (found == nullptr || found->type != String(tool->second->view)) return EDITOR_REFUSED;
+    auto &state = *found;
     if (state.dispatching) return EDITOR_REFUSED;
     if (state.choice == id && state.handler == tool->second && state.entered) return EDITOR_NO_CHANGE;
-    if (tool->second->state && s.restoringView != scope.view) {
+    if (tool->second->state && s.tools.RestoringView() != scope.view) {
         ++s.checking;
         EditorStatus status = EDITOR_ERROR;
         const EditorRequest request{scope};
@@ -2395,16 +2384,14 @@ EditorStatus EditorApplication::SelectTool(EditorScope scope, const std::string 
 void EditorApplication::RestoreTool(EditorView view, const std::string &choice) {
     auto &s = *m_State;
     if (!s.Thread()) return;
-    const auto found = s.toolStates.find(view);
-    if (found == s.toolStates.end()) return;
-    const auto restoring = s.restoringView;
-    s.restoringView = view;
+    const auto found = s.tools.Find(view);
+    if (found == nullptr) return;
+    auto restoring = s.tools.Restoring(view);
     const auto status = choice.empty() ? EDITOR_NO_CHANGE : SelectTool(Scope(view), choice);
-    s.restoringView = restoring;
     if (status == EDITOR_INVALID) {
-        found->second.choice = choice;
-        found->second.handler = nullptr;
-        found->second.entered = false;
+        found->choice = choice;
+        found->handler = nullptr;
+        found->entered = false;
     }
 }
 EditorStatus EditorApplication::ToolInput(EditorScope scope, const EditorToolInput &input) {
@@ -2416,10 +2403,10 @@ EditorStatus EditorApplication::ToolInput(EditorScope scope, const EditorToolInp
         input.released > 7 || input.modifiers > 15 || input.hovered > 1 || input.focused > 1)
         return EDITOR_INVALID;
     if (!s.Valid(scope, EDITOR_WORKSPACE) || scope.document != s.document) return EDITOR_STALE;
-    const auto found = s.toolStates.find(scope.view);
-    if (found == s.toolStates.end()) return EDITOR_NO_CHANGE;
-    auto &state = found->second;
-    if (state.dispatching || s.querying || s.checking || (s.readOnlyCallbacks && s.restoringView != scope.view))
+    const auto found = s.tools.Find(scope.view);
+    if (found == nullptr) return EDITOR_NO_CHANGE;
+    auto &state = *found;
+    if (state.dispatching || s.querying || s.checking || (s.readOnlyCallbacks && s.tools.RestoringView() != scope.view))
         return EDITOR_REFUSED;
     const auto *current = ActiveTool(scope.view);
     if ((input.phase == EDITOR_TOOL_FRAME || input.phase == EDITOR_TOOL_ENTER) && state.handler != current) {
@@ -2444,10 +2431,7 @@ EditorStatus EditorApplication::ToolInput(EditorScope scope, const EditorToolInp
         const auto status = ToolInput(scope, enter);
         if (status != EDITOR_OK && status != EDITOR_NO_CHANGE) return status;
     }
-    state.dispatching = true;
     ++s.drawing;
-    const auto previousInput = s.inputView;
-    s.inputView = scope.view;
     uint32_t flags = 0;
     EditorStatus status = EDITOR_ERROR;
     const EditorRequest request{scope};
@@ -2456,14 +2440,12 @@ EditorStatus EditorApplication::ToolInput(EditorScope scope, const EditorToolInp
         delivered.pressed = 0;
         delivered.wheel = delivered.wheelX = 0;
     }
-    try {
-        status = state.handler->input(state.handler->data, Host(), &request, &delivered, &flags);
-    } catch (...) {
-        status = EDITOR_ERROR;
+    {
+        auto dispatch = s.tools.DispatchTo(scope.view);
+        try { status = state.handler->input(state.handler->data, Host(), &request, &delivered, &flags); }
+        catch (...) { status = EDITOR_ERROR; }
     }
-    s.inputView = previousInput;
     --s.drawing;
-    state.dispatching = false;
     if (flags & ~uint32_t(EDITOR_TOOL_CAPTURED | EDITOR_TOOL_DEFAULT)) status = EDITOR_INVALID;
     if (input.phase == EDITOR_TOOL_ENTER && (status == EDITOR_OK || status == EDITOR_NO_CHANGE)) state.entered = true;
     if (input.phase == EDITOR_TOOL_LEAVE) state.entered = false;
@@ -2478,9 +2460,9 @@ EditorStatus EditorApplication::ToolInput(EditorScope scope, const EditorToolInp
 void EditorApplication::CancelTool(EditorView view) {
     auto &s = *m_State;
     if (!s.Thread() || s.querying || s.checking || s.readOnlyCallbacks) return;
-    const auto found = s.toolStates.find(view);
-    if (found == s.toolStates.end() || found->second.dispatching) return;
-    auto &state = found->second;
+    const auto found = s.tools.Find(view);
+    if (found == nullptr || found->dispatching) return;
+    auto &state = *found;
     if (state.handler && state.entered) {
         EditorToolInput cancel{};
         cancel.size = sizeof(cancel);
@@ -2622,14 +2604,14 @@ void EditorApplication::Stop() {
     if (!s.Thread() || s.modules.Busy())
         return;
     StopModules();
-    for (const auto &entry : s.toolStates) {
+    for (const auto &entry : s.tools.Entries()) {
         CancelTool(entry.first);
         EditorToolInput leave{};
         leave.size = sizeof(leave);
         leave.phase = EDITOR_TOOL_LEAVE;
         ToolInput(Scope(entry.first), leave);
     }
-    s.toolStates.clear();
+    s.tools.Clear();
     s.active = false;
     s.stopped = true;
     s.drafts.Clear();
