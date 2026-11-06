@@ -40,7 +40,7 @@ endif()
 foreach(_case DispatchRecheck BusyCheck WrongThread AdmissionException WorkflowIsolation RequestCancellation
         ScopedSubmission ContinuationOwnership CompletionStartsWorkflow DocumentContinuation AdmissionReentry
         DispatchException WorkerExclusion NativeAvailability DeferredInputOwnership ExpiredContinuation
-        ContinuationThread StableAvailability)
+        ContinuationThread StableAvailability ScopedAvailability CompletionNativeAccess)
     add_test(NAME NeMoDevRuntimeAdmission.${_case} COMMAND NeMoDevRuntimeAdmissionTests ${_case})
     set_tests_properties(NeMoDevRuntimeAdmission.${_case} PROPERTIES LABELS self-contained)
 endforeach()

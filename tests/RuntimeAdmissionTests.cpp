@@ -396,6 +396,35 @@ void StableAvailability() {
     Check(ready && count == 0, "stable native readiness allocated or changed ownership");
     std::cout << "Allocations in 2000 native availability checks: " << count << '\n';
 }
+void ScopedAvailability() {
+    RuntimeOperation runtime;
+    auto request = runtime.Begin("Document replacement");
+    Check(bool(request) && !runtime.Available(), "unowned access entered a reserved runtime");
+    std::function<void()> expired;
+    {
+        auto submitting = request.Enter();
+        Check(runtime.Available() && !runtime.Begin("Another workflow"), "owner lost native reads or replaced its request");
+        expired = runtime.Continue([&] {
+            Check(!runtime.Available() && !runtime.Begin("Expired workflow"), "expired input regained native access");
+        });
+    }
+    Check(!runtime.Available(), "native access escaped the submission scope");
+    request.Reset();
+    expired();
+    Check(runtime.Available(), "expired input poisoned later native access");
+}
+void CompletionNativeAccess() {
+    RuntimeOperation runtime;
+    bool read = false, next = false;
+    Check(runtime.Queue("First", [] {}, [&](const std::string &error) {
+        Check(error.empty(), "first task failed");
+        read = runtime.Available();
+        Check(!runtime.Begin("Unrelated workflow"), "completion replaced an existing FIFO batch");
+    }), "queue first");
+    Check(runtime.Queue("Following", [&] { next = true; }, {}), "queue following task");
+    runtime.Finish();
+    Check(read && next && runtime.Available(), "completed native work could not safely publish with later work queued");
+}
 } // namespace
 void *operator new(std::size_t size) {
     if (auto *memory = std::malloc(size ? size : 1)) {
@@ -459,6 +488,10 @@ int main(int argc, char **argv) {
             ContinuationThread();
         else if (name == "StableAvailability")
             StableAvailability();
+        else if (name == "ScopedAvailability")
+            ScopedAvailability();
+        else if (name == "CompletionNativeAccess")
+            CompletionNativeAccess();
         else
             throw std::runtime_error("Unknown runtime admission case: " + name);
         return 0;

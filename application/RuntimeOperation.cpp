@@ -49,7 +49,7 @@ void RuntimeOperation::Request::Reset() {
     m_Id = 0;
 }
 RuntimeOperation::Request RuntimeOperation::Begin(const std::string &label) {
-    if (!Available() || m_Checking || !AdmissionError(label).empty()) return {};
+    if (Busy() || !Available(0) || m_Checking || (m_Submitting && !Owns(m_Submitting)) || !AdmissionError(label).empty()) return {};
     do {
         ++m_NextRequest;
     } while (!m_NextRequest);
@@ -57,7 +57,7 @@ RuntimeOperation::Request RuntimeOperation::Begin(const std::string &label) {
     return Request(this, m_Request);
 }
 bool RuntimeOperation::CanQueue(const std::string &label) const {
-    return Thread() && !m_Checking && Available(m_Submitting) && AdmissionError(label).empty();
+    return Thread() && !m_Checking && !Busy() && Available(m_Submitting) && AdmissionError(label).empty();
 }
 std::string RuntimeOperation::AdmissionError(const std::string &label) const {
     if (!NativeReady()) return "The native runtime is unavailable";

@@ -97,7 +97,7 @@ class RuntimeOperation {
     bool CanQueue(const std::string &label) const;
     // Native access, without the stricter no-edit/no-gesture task admission.
     // Busy describes the queue/worker only; a request waiting for input is idle.
-    bool Available() const { return Available(0); }
+    bool Available() const { return Thread() && Available(m_Submitting); }
     DocumentScope CurrentDocument() const;
     void DocumentChanged();
     void Start();
@@ -120,7 +120,8 @@ class RuntimeOperation {
     bool Thread() const { return m_Thread == std::this_thread::get_id(); }
     bool Owns(uint64_t id) const { return Thread() && id && id == m_Request; }
     bool Available(uint64_t id) const {
-        return Thread() && !Busy() && (!m_Request || id == m_Request) && NativeReady();
+        return Thread() && (m_Completing ? !Active() : !Busy()) && (!id || id == m_Request) &&
+               (!m_Request || id == m_Request) && NativeReady();
     }
     bool NativeReady() const;
     std::string AdmissionError(const std::string &) const;
