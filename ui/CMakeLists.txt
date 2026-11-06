@@ -362,6 +362,16 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    add_executable(NeMoDevEditorOwnershipTests ../tests/EditorOwnershipTests.cpp)
+    target_link_libraries(NeMoDevEditorOwnershipTests PRIVATE NeMoDevEditorApplication NeMoDevObjectCommands
+            VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
+    foreach(_case CapturedConfiguration CapturedAppearance DraftConfiguration DraftAppearance FailedConfigurationKeepsDraft PreviewConfigurationCancel
+            PendingPreviewConfiguration PendingPreviewClose DraftScopeLifetime DocumentReplacement StopCleanupOrder
+            QueryConfigurationFailure DeliveryAcrossConfiguration QueryScopeLifetime)
+        add_test(NAME NeMoDevEditorOwnership.${_case} COMMAND NeMoDevEditorOwnershipTests ${_case})
+        set_tests_properties(NeMoDevEditorOwnership.${_case} PROPERTIES LABELS self-contained
+                ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    endforeach()
     add_executable(NeMoDevModuleLifecycleTests ../tests/ModuleLifecycleTests.cpp)
     nemodev_add_module(NeMoDevLifecycleModule SOURCES ../tests/modules/LifecycleModule.cpp)
     target_link_libraries(NeMoDevModuleLifecycleTests PRIVATE NeMoDevEditorApplication NeMoDevObjectCommands VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
