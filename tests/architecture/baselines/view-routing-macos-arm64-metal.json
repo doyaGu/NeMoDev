@@ -1,0 +1,239 @@
+{
+  "description": "视图提供者替换后的目标选择与命令路由修复。",
+  "base_revision": "2633668072f6cb6b5156bc14a44643ff639f7880",
+  "recorded_utc": "2026-11-06T01:57:42.073437+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "native_desktop": true
+  },
+  "changes": [
+    "Schematic 导航与原生 Layout 查询、命令共用工作区的目标选择；0 选择默认可用实例，显式来源必须存在并匹配类型。",
+    "命令状态、执行、连续命令及加入已有编辑使用同一目标选择，保留原文档编号；连续手势固定开始时的实例。",
+    "移除 Script 显示和参数导航对内置 Canvas 的检查；文件加载、Level、Setup、Debugger 的跨视图入口明确选择默认目标。",
+    "原生操作缺少目标实例的渲染对象时拒绝；Building Block 参数输入没有原生视口时回滚，不留下无法完成的编辑。",
+    "客户端仅在构造请求时保留显式来源；作用域有效性查询及线程检查维持原语义。",
+    "独立动态模块仅使用公开编辑器与 ImGui 头，提供可替换的 Schematic、Layout 及相机命令；内置和外部实例使用同一路由。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-view-routing/build-final.log",
+      "sha256": "eac12cf13a15c52991b91500486bcd83ff0ba9d53b96e334f00e5daa6ca3d6ea"
+    },
+    "complete_run": {
+      "total": 208,
+      "passed": 208,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-view-routing/full.xml",
+        "sha256": "ea57e9a390e5038382560dc81dfff83b8b5df564f0f41184934d93f2262666f8"
+      },
+      "log": {
+        "path": "out/phase-six-view-routing/full.log",
+        "sha256": "518bbf5d888d75a19667df2d6d0e25cd101229eb620ae36e2538f1c85dfda279"
+      }
+    },
+    "complete_inventory": {
+      "path": "out/phase-six-view-routing/full-inventory.json",
+      "sha256": "317da0f3f3bc6ac2d318f0dfd1414782ac45d45363152a7e14722afaf21b1f4f"
+    },
+    "inventory_check": {
+      "path": "out/phase-six-view-routing/results-check.log",
+      "sha256": "f8ec8963c52535cfd6ffccab1c35801b4a824c4afafb1699e84c6f64166db36d"
+    },
+    "independent_routing_cases": [
+      "VirtoolsDevUi.ViewRouting.schematic_replaced_view_receives_script_show",
+      "VirtoolsDevUi.ViewRouting.layout_foreign_source_keeps_active_camera",
+      "VirtoolsDevUi.ViewRouting.schematic_replaced_instances_keep_navigation_targets",
+      "VirtoolsDevUi.ViewRouting.layout_replaced_instances_use_selected_command_provider",
+      "VirtoolsDevUi.ViewRouting.schematic_replaced_view_receives_parameter_navigation",
+      "VirtoolsDevUi.ViewRouting.layout_invalid_sources_cannot_query_edit_or_capture",
+      "VirtoolsDevUi.ViewRouting.layout_default_gesture_keeps_initial_view_after_focus_change",
+      "VirtoolsDevUi.ViewRouting.level_navigation_uses_replaced_schematic"
+    ],
+    "targeted_callers": {
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-view-routing/callers-final.xml",
+        "sha256": "01c3d93ce53efcd6b1534e357e5f2305126361fec17ae2fdfd28e4b4178d11ba"
+      },
+      "log": {
+        "path": "out/phase-six-view-routing/callers-final.log",
+        "sha256": "d534082b783136420cccf810d499d5d63f74542c25ab2377d95113595af7e753"
+      }
+    },
+    "native_player": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-view-routing/player.xml",
+        "sha256": "9a553dea1437e0dca5ecd23c35bec094edf4672bb1018b37e4a34af9a29c2cad"
+      },
+      "cases": [
+        "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground",
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "unselected": 413,
+      "log": {
+        "path": "out/phase-six-view-routing/player.log",
+        "sha256": "2838c013b0268f5275d948e431b8c804ba87747eb2d3c0b0d1d7be51c2fb67d5"
+      },
+      "desktop_session": {
+        "path": "out/phase-six-view-routing/desktop-session.json",
+        "sha256": "65515123951e6f83923e973d4df6c45807bdfad27466efc1cab6cad912c0cd0e"
+      }
+    },
+    "core_regressions": [
+      "默认、显式、外部、失效及错误类型的视图目标",
+      "另一线程的作用域查询不能报告有效实例",
+      "原生视口缺失后拖放回滚，不保留未完成编辑"
+    ],
+    "post_tidy": {
+      "changes": "复用测试配置与导航读取，清理局部命名和排版。",
+      "build": {
+        "path": "out/phase-six-view-routing/build-tidy.log",
+        "sha256": "dbac66fab15388b045837df903dbcaec6df3b75be68150d0fab5463cc243835a"
+      },
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-view-routing/tidy.xml",
+        "sha256": "4b4cc45dda90aa5289c72b744126759bd17c27e872c7931362af0978b209c45b"
+      },
+      "log": {
+        "path": "out/phase-six-view-routing/tidy.log",
+        "sha256": "afc83d30dcc840245085ba2f82048402f2cea0c917ed71f38a865d5550b2be37"
+      }
+    }
+  },
+  "failure_runs": [
+    {
+      "reason": "替换后直接导航成功，script.show 仍被内置 Canvas 检查拒绝。",
+      "log": {
+        "path": "out/phase-six-view-routing/schematic-red-control.log",
+        "sha256": "999f381936591a4ae0b2fe3fbe8d8d3a61fe6f320bce7a1e144627697d7ee227"
+      }
+    },
+    {
+      "reason": "错误类型的来源仍修改当前内置相机。",
+      "log": {
+        "path": "out/phase-six-view-routing/layout-red.log",
+        "sha256": "9c44c425efdb0ea3989c232ef65c3d32ddf13caef878dabb01fff0f11d545476"
+      }
+    },
+    {
+      "reason": "参数位置查询成功，参数导航仍依赖内置 Canvas。",
+      "log": {
+        "path": "out/phase-six-view-routing/parameter-red.log",
+        "sha256": "46c6fd1a0b65e5bf1679db98c0f7f38737fea2de4489c7fdb5c427e86ed1ae22"
+      }
+    },
+    {
+      "reason": "应用入口执行外部相机命令时没有解析默认视图。",
+      "log": {
+        "path": "out/phase-six-view-routing/command-default-red.log",
+        "sha256": "60bdd56f0a9b58d5578fdbdeb7d639cebab35bd3eac2f079f6c3574006f1a93d"
+      }
+    },
+    {
+      "reason": "旧客户端被当作默认来源；连续手势在焦点变化后丢失开始目标。",
+      "log": {
+        "path": "out/phase-six-view-routing/frozen-target-red.log",
+        "sha256": "cafd80da6d811c94756237531d3144f4df45a5ce3c14e46272d6945cae144acc"
+      }
+    },
+    {
+      "reason": "原生视口缺失后 Building Block 拖放保留无法确认的编辑。",
+      "log": {
+        "path": "out/phase-six-view-routing/drop-red.log",
+        "sha256": "899ecbc7bf1ec8e97df2dd16b8ace9f66013a11f533379bd81042c7a1b6a447d"
+      }
+    },
+    {
+      "reason": "作用域查询改动触发原生视图清空；已恢复查询语义并补线程回归。",
+      "log": {
+        "path": "out/phase-six-view-routing/full-before-scope-fix.log",
+        "sha256": "6157764fcced66570e43a2cc972479c16e734bc8bc17413d22325c7ab82a8e6d"
+      }
+    },
+    {
+      "reason": "Debugger 断点按钮和参数跳转测试仍依赖隐式跨视图转发；已明确选择目标。",
+      "log": {
+        "path": "out/phase-six-view-routing/full-before-cross-view-callers.log",
+        "sha256": "f2497c6f3334efa305db6682b1427bc1f3fc7e0985a9eae730567dd51fa6eb2d"
+      }
+    }
+  ],
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-view-routing/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-view-routing/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-view-routing/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-view-routing/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "gpu_rendering_sources": {
+      "ui/native/LayoutRenderer.cpp": {
+        "before_sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "after_sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "before_sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "after_sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "before_sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "after_sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "before_sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "after_sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "before_sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "after_sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      }
+    },
+    "public_module_headers_unchanged": [
+      "editor/Editor.h",
+      "editor/Identity.h",
+      "editor/ImGuiDrawing.h"
+    ],
+    "gpu_and_cpu_fallback": "完整 app 回归检查稳定纹理复用、resize、显式截图读回以及错误设备、注入失败后的通用 fallback；原生双视口与 Player 桌面检查通过。"
+  },
+  "deferred": {
+    "performance": "等待用户提供空闲窗口，未运行性能计时，原验收门槛不变。",
+    "runtime_isolation": "按用户安排单独实施。"
+  }
+}

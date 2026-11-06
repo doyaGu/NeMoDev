@@ -1307,7 +1307,11 @@
       "ui_tests": [
         "VirtoolsDevUi.schematic",
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.debugger"
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.ViewRouting.schematic_replaced_view_receives_script_show",
+        "VirtoolsDevUi.ViewRouting.schematic_replaced_instances_keep_navigation_targets",
+        "VirtoolsDevUi.ViewRouting.schematic_replaced_view_receives_parameter_navigation",
+        "VirtoolsDevUi.ViewRouting.level_navigation_uses_replaced_schematic"
       ],
       "gaps": []
     },
@@ -1460,7 +1464,11 @@
         "VirtoolsDevUi.FrameQueries.IdleSelection",
         "VirtoolsDevUi.PlayerState.unavailable_fullscreen_keeps_both_viewports",
         "VirtoolsDevUi.GpuLifetime.gpu_viewport_close_after_draw_keeps_pending_image",
-        "VirtoolsDevUi.GpuLifetime.gpu_viewport_context_stop_after_draw_keeps_pending_image"
+        "VirtoolsDevUi.GpuLifetime.gpu_viewport_context_stop_after_draw_keeps_pending_image",
+        "VirtoolsDevUi.ViewRouting.layout_foreign_source_keeps_active_camera",
+        "VirtoolsDevUi.ViewRouting.layout_replaced_instances_use_selected_command_provider",
+        "VirtoolsDevUi.ViewRouting.layout_invalid_sources_cannot_query_edit_or_capture",
+        "VirtoolsDevUi.ViewRouting.layout_default_gesture_keeps_initial_view_after_focus_change"
       ],
       "gaps": [
         {

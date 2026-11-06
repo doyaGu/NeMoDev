@@ -1,5 +1,19 @@
 # Architecture checks and migration results
 
+View provider routing now uses the workspace's view selection for Schematic
+navigation and Layout commands. A zero source selects the last focused available
+instance; a nonzero source must still exist and match the requested type.
+Command routing preserves the document token and continuous edits retain their
+initial view. Native operations refuse a replacement without a native viewport.
+Level, Setup and Debugger explicitly select their destination for cross-view
+actions. Eight independent CTests use a separately compiled public-header-only
+module; the Level keyboard case uses the existing composition fixture. Core
+regressions cover thread checks and rolling back a behavior drop without a
+native viewport. Release checks passed 208/208 and native Player desktop checks
+7/7 on macOS Metal. Results are recorded in
+`baselines/view-routing-macos-arm64-metal.json`; performance still awaits the
+user's idle window and runtime process isolation remains separate.
+
 `coverage.json` lists the 59 source groups,
 32 feature/extension targets and 51 state families. It records CTest results,
 future verification gaps, existing include dependencies and private native
