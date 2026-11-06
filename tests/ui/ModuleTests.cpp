@@ -2056,9 +2056,9 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             const auto undo = state.History().UndoCount(); const auto redo = state.History().RedoLabel();
             const auto revision = state.document->TopologyRevision(); const auto dirty = state.document->Dirty();
             IM_CHECK_NO_RET(editor.Execute("runtime.play", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
-            struct Views final : vdev::DocumentFiles::Views {
+            struct Views final : vdev::DocumentViews {
                 vdev::EditorSession &state;
-                vdev::DocumentFiles::Views *original;
+                vdev::DocumentViews *original;
                 int mode = 0, detached = 0;
                 bool released = false;
                 explicit Views(vdev::EditorSession &state) : state(state), original(state.documentViews) { state.documentViews = this; }
@@ -2067,6 +2067,9 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 void DetachDocument(bool replaceContext) override {
                     ++detached; original->DetachDocument(replaceContext); released = true;
                     if (mode != 2) throw std::runtime_error("Injected failure after releasing actual views");
+                }
+                void DocumentReplaced(vdev::DocumentToken document, uint64_t revision, bool open) override {
+                    original->DocumentReplaced(document, revision, open);
                 }
                 void RestoreDocument() override {
                     released = false; original->RestoreDocument();

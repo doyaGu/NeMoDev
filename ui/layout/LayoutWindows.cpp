@@ -240,6 +240,9 @@ bool LayoutWindows::Register(std::string &error, SDL_Window *mainWindow) {
     module.id = EDITOR_TEXT("layout.window");
     module.data = this;
     module.stop = [](void *data, const EditorHost *) { static_cast<LayoutWindows *>(data)->Stop(); };
+    module.document = [](void *data, const EditorHost *, const EditorDocumentChange *change) {
+        return static_cast<LayoutWindows *>(data)->DocumentChange(*change);
+    };
     module.views = &view;
     module.viewCount = 1;
     return RegisterControls(module, error);

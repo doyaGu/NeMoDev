@@ -22,7 +22,7 @@ class EditorSession : public DocumentFiles::Observer {
     Clipboard clipboard;
     EventLog eventLog;
     FileDialogs fileDialogs;
-    DocumentFiles::Views *documentViews = nullptr;
+    DocumentViews *documentViews = nullptr;
     std::function<bool()> interactionActive;
 
     bool HasDocument() const { return document && document->IsOpen(); }

@@ -2,6 +2,7 @@
 
 #include "application/EditorApplication.h"
 #include "application/WorkspaceState.h"
+#include "application/DocumentViews.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -9,7 +10,7 @@
 namespace vdev {
 // Windows keep only their input's ID. Drafts, chosen editors and native target
 // validation belong to EditorApplication. Closing an owner cancels its drafts.
-class EditorWorkspace : private EditorViewNavigation {
+class EditorWorkspace : private EditorViewNavigation, public DocumentViews {
   public:
     explicit EditorWorkspace(EditorApplication &application);
     ~EditorWorkspace();
@@ -46,7 +47,7 @@ class EditorWorkspace : private EditorViewNavigation {
     bool Restore(const WorkspaceState &, std::string &error);
     bool LoadLayout(const std::string &, std::string &error);
     bool Unavailable(EditorView) const;
-    bool SavingBlocked() const { return m_RestoreFailed; }
+    bool SavingBlocked() const { return m_RestoreFailed || m_Detached; }
     struct LayoutUpdate {
         bool changed = false;
         EditorView focus = 0;
@@ -67,6 +68,10 @@ class EditorWorkspace : private EditorViewNavigation {
     bool Close(EditorView view);
     void CloseAll();
     void DocumentChanging();
+    void DetachDocument(bool replaceContext) override;
+    void RestoreDocument() override;
+    void DocumentReplaced(DocumentToken, uint64_t revision, bool open) override;
+    bool DocumentInteractionActive() const override { return Interacting(); }
     bool Configure(const EditorConfiguration &configuration, std::string &error);
     size_t ViewCount() const { return m_Views.size(); }
 
@@ -121,6 +126,8 @@ class EditorWorkspace : private EditorViewNavigation {
     bool Checked(const MenuEntry &, EditorScope);
     void CommandResult(const EditorResponse &);
     EditorApplication &m_Application;
+    bool m_Detached = false, m_ReplacingContext = false;
+    DocumentToken m_DetachedDocument{};
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;
     EditorView m_DragOwner = 0;

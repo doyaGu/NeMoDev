@@ -44,6 +44,7 @@ set(_editor_sources
         controls/ParameterBox.cpp
         controls/ParameterDialog.cpp
         native/LayoutRenderer.cpp
+        native/LayoutDocument.cpp
         native/ParameterCopies.cpp
         native/ParameterDialogs.cpp
         controls/ObjectArrayInput.cpp

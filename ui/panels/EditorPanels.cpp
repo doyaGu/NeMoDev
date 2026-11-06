@@ -89,6 +89,11 @@ bool EditorPanels::Register(EditorApplication &editor, std::string &error) {
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("schematic.explorer"); module.views = &view; module.viewCount = 1;
+    module.data = this;
+    module.document = [](void *data, const EditorHost *, const EditorDocumentChange *change) {
+        if (change->phase == EDITOR_DOCUMENT_REPLACED) static_cast<EditorPanels *>(data)->DocumentClosed();
+        return EDITOR_OK;
+    };
     module.commands = commands;
     module.commandCount = 3;
     module.bindings = bindings;

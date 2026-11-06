@@ -69,7 +69,7 @@ EditorApp::EditorApp()
       m_ObjectCommands([this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }),
       m_Schematics(m_Workspace, m_Style), m_Panels(m_ParameterCopies, m_Workspace, m_Schematics) {
     m_Session.interactionActive = [this] { return m_Editor.HasEdits(); };
-    m_Session.documentViews = this;
+    m_Session.documentViews = &m_Workspace;
     m_Execution.changed = [this] { m_Schematics.RefreshValues(); };
     m_Editor.report = [this](const EditorResponse &result) {
         if (!result.message.empty() && result.status != EDITOR_NO_CHANGE)
@@ -545,7 +545,6 @@ void EditorApp::Shutdown() {
     m_Editor.StopModules();
     m_Workspace.ConfigurationWriter({});
     m_ProfileReady = false;
-    if (m_Session.document) CloseDocumentViews();
     m_Session.documentViews = nullptr;
     m_Workspace.CloseAll();
     m_Appearance.Reset();
@@ -589,11 +588,6 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
                     m_Session.document ? m_Session.document->TopologyRevision() : 0, true, m_Session.HasDocument());
     m_Schematics.Validate();
     using A = DocumentCommands::Action;
-    if (result.action == A::New && result.status == EDITOR_OK) {
-        std::string error;
-        if (!m_Layouts.Start(m_Window, &error))
-            m_Session.Log(LogLevel::Warning, "3D Layout: " + error);
-    }
     if (!result.message.empty())
         m_Session.Log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
     if ((result.action == A::Open || result.action == A::Revert) && result.opened.opened)
@@ -655,15 +649,11 @@ bool EditorApp::OpenFile(const std::string &path) {
 }
 
 void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
-    std::string layoutError;
-    if (!m_Layouts.Start(m_Window, &layoutError))
-        m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     RememberRecentFile(path);
     // NMO opens are imports into a new composition. Keep its editor state,
     // just as Import File does, rather than restoring the library's layout.
     if (m_Session.document->CreatedFrom() == Document::Origin::LoadedComposition) {
-        m_Layouts.Primary().ApplyLayoutData(result.layout, m_LayoutCommands.ProjectInterface(result.layout));
-        ReopenSetups(result.layout);
+        m_Layouts.ApplyLayoutData(result.layout, m_LayoutCommands.ProjectInterface(result.layout));
         m_SchematicGraph.LoadedLinks(result.invalid);
         if (result.removed) m_Session.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
         if (!result.invalid.empty())
@@ -704,101 +694,6 @@ void EditorApp::RememberRecentFile(const std::string &path) {
     m_Settings.AddRecentFile(ec ? path : absolute.u8string());
     SavePreferences();
 }
-
-void EditorApp::CloseDocumentViews() {
-    m_LayoutAuthoring.DocumentClosing();
-    m_Workspace.DocumentChanging();
-    m_Editor.NativeAvailable(false);
-    m_Outputs.Stop();
-    m_Panels.DocumentClosed();
-    m_Layouts.DocumentClosed(); // its working copies while they still exist
-    m_Layouts.Primary().ApplyLayoutData(LayoutInterfaceData(), {});
-    m_Schematics.DocumentClosed();
-    ReleaseSnapshotTextures(); // the document frees its bitmaps
-    UpdateTitle();
-}
-
-void EditorApp::DetachDocument(bool replaceContext) {
-    if (DocumentInteractionActive()) throw std::runtime_error("Finish the current document interaction");
-    m_DetachedLayout = LayoutDataToSave();
-    m_DetachedDocument = m_Session.document->Token();
-    CloseDocumentViews();
-    if (replaceContext)
-        m_Layouts.Stop();
-}
-
-void EditorApp::RestoreDocument() {
-    if (!m_DetachedDocument.value || m_Session.document->Token() != m_DetachedDocument) return;
-    m_Editor.Attach(m_Session.HasDocument() ? m_Session.document->Token() : DocumentToken{},
-                    m_Session.document->TopologyRevision(), true, m_Session.HasDocument());
-    std::string error;
-    if (!m_Layouts.Start(m_Window, &error))
-        throw std::runtime_error("3D Layout: " + error);
-    m_Layouts.Primary().ApplyLayoutData(m_DetachedLayout, m_LayoutCommands.ProjectInterface(m_DetachedLayout), false);
-    ReopenSetups(m_DetachedLayout);
-    m_Schematics.Invalidate();
-    UpdateTitle();
-    m_DetachedDocument = {};
-}
-
-bool EditorApp::DocumentInteractionActive() const {
-    return m_Schematics.Busy() || m_Layouts.Busy() || m_Workspace.Interacting();
-}
-
-
-
-// The Setups of the 3D Layout's data open again (Dev.exe sub_4B46C0 ->
-// sub_5CB9E0), in their order, the one in front last; a Curve Setup on its
-// control point.
-void EditorApp::ReopenSetups(const LayoutInterfaceData &data) {
-    if (!data.present || !m_Session.HasDocument()) return;
-    CKContext *context = m_Session.document->Context();
-    std::vector<LayoutInterfaceData::Setup> setups = data.setups;
-    std::stable_sort(setups.begin(), setups.end(),
-                     [](const LayoutInterfaceData::Setup &a, const LayoutInterfaceData::Setup &b) { return a.values[1] < b.values[1]; });
-    CK_ID front = 0;
-    for (const LayoutInterfaceData::Setup &setup : setups) {
-        CKObject *object = context->GetObject(setup.object);
-        CKGUID guid;
-        if (!object || !LayoutSetupGuid(object, guid)) continue;
-        const CK_ID shown = CKCurve::Cast(object) && CKCurvePoint::Cast(context->GetObject(setup.other)) ? setup.other : setup.object;
-        m_Setups.Open(m_Session.document->Reference(shown));
-        if (setup.values[2]) front = shown;
-    }
-    if (front)
-        m_Setups.Open(m_Session.document->Reference(front));
-}
-
-// The 3D Layout's data with the Setups open (sub_4B4E50: the GUID, the
-// object, the Curve Setup's point, the window's state, its order, in front).
-LayoutInterfaceData EditorApp::LayoutDataToSave() const {
-    LayoutInterfaceData data = m_Layouts.Primary().LayoutData();
-    if (!m_Session.HasDocument()) return data;
-    CKContext *context = m_Session.document->Context();
-    data.setups.clear();
-    int order = 2;
-    for (const SetupWindows::OpenSetup &open : m_Setups.OpenSetups()) {
-        LayoutInterfaceData::Setup setup;
-        const auto id = m_Session.document->NativeId(open.object);
-        if (!LayoutSetupGuid(context->GetObject(id), setup.guid))
-            continue;
-        setup.object = id;
-        setup.other = m_Session.document->NativeId(open.other);
-        setup.values[0] = 2; // the docked state Dev's files hold most
-        setup.values[1] = order++;
-        setup.values[2] = open.front ? 1 : 0;
-        data.setups.push_back(setup);
-    }
-    return data;
-}
-
-
-
-
-
-
-
-
 
 void EditorApp::DropFiles(const std::vector<std::wstring> &paths, float x, float y) {
     if (Busy()) {

@@ -1238,15 +1238,18 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK(App().Canvas(first).Navigation().options.showGrid == before.options.showGrid);
         // A failed document switch must retain both windows' navigation.
         OnMainThread(ctx, [&] {
-            struct FailingViews : vdev::DocumentFiles::Views {
+            struct FailingViews : vdev::DocumentViews {
                 vdev::EditorSession &state;
-                vdev::DocumentFiles::Views *original;
+                vdev::DocumentViews *original;
                 explicit FailingViews(vdev::EditorSession &s) : state(s), original(s.documentViews) { state.documentViews = this; }
                 ~FailingViews() { state.documentViews = original; }
                 bool DocumentInteractionActive() const override { return original->DocumentInteractionActive(); }
                 void DetachDocument(bool context) override {
                     original->DetachDocument(context);
                     throw std::runtime_error("Injected Schematic view detach failure");
+                }
+                void DocumentReplaced(vdev::DocumentToken document, uint64_t revision, bool open) override {
+                    original->DocumentReplaced(document, revision, open);
                 }
                 void RestoreDocument() override { original->RestoreDocument(); }
             } views(state);

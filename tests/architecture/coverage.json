@@ -221,7 +221,8 @@
       "name": "Layout 视图",
       "patterns": [
         "ui/layout/**",
-        "ui/native/LayoutRenderer.cpp"
+        "ui/native/LayoutRenderer.cpp",
+        "ui/native/LayoutDocument.cpp"
       ]
     },
     {
@@ -2762,6 +2763,13 @@
         "native-sdk"
       ],
       "purpose": "参数工作副本的创建、校验、拾取、统一命令提交及回收；绘制源码只接收值副本和完整对象引用。"
+    },
+    {
+      "file": "ui/native/LayoutDocument.cpp",
+      "access": [
+        "native-sdk"
+      ],
+      "purpose": "Layout 模块的文档脱离与恢复、文件内布局和 Setup 引用转换；稳定渲染与纹理传输仍归既有呈现实现。"
     }
   ],
   "native_hosts": [

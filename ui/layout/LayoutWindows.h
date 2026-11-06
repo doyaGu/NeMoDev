@@ -25,6 +25,8 @@ class LayoutWindows {
     bool Busy() const;
     bool FullScreen() const;
     void UpdateInput();
+    LayoutInterfaceData LayoutData() const;
+    void ApplyLayoutData(const LayoutInterfaceData &, const LayoutRestoreData &);
     std::function<void(EditorView, LayoutObject)> createObject;
     template <class F> void ForEach(F &&call) {
         if (m_Instances.empty())
@@ -45,6 +47,7 @@ class LayoutWindows {
     void Destroy(void *);
     bool IsPrimary(EditorView) const;
     bool RegisterControls(EditorModuleDesc, std::string &);
+    EditorStatus DocumentChange(const EditorDocumentChange &);
     struct Action {
         LayoutWindows *owner;
         int command;

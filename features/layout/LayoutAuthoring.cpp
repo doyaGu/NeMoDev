@@ -574,6 +574,10 @@ bool LayoutAuthoring::Register(std::string &error) {
         if (phase == EDITOR_PREPARE_FRAME) static_cast<LayoutAuthoring *>(data)->Poll();
     };
     module.stop = [](void *data, const EditorHost *) { static_cast<LayoutAuthoring *>(data)->DocumentClosing(); };
+    module.document = [](void *data, const EditorHost *, const EditorDocumentChange *change) {
+        if (change->phase == EDITOR_DOCUMENT_REPLACED) static_cast<LayoutAuthoring *>(data)->DocumentClosing();
+        return EDITOR_OK;
+    };
     module.commands = commands;
     module.commandCount = 4;
     module.queries = queries;

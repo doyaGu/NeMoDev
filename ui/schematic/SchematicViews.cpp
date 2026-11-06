@@ -264,6 +264,11 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("schematic.views");
+    module.data = this;
+    module.document = [](void *data, const EditorHost *, const EditorDocumentChange *change) {
+        if (change->phase == EDITOR_DOCUMENT_REPLACED) static_cast<SchematicViews *>(data)->DocumentClosed();
+        return EDITOR_OK;
+    };
     module.commands = all.data();
     module.commandCount = uint32_t(all.size());
     module.views = &view;

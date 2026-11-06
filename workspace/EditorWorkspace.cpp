@@ -870,7 +870,7 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
     std::vector<EditorView> closed;
     for (auto &v : m_Views) {
         auto &view = v.second;
-        if (!nativeAvailable && view.desc.area == EDITOR_DOCUMENT) continue;
+        if ((!nativeAvailable || m_Detached) && view.desc.area == EDITOR_DOCUMENT) continue;
         const bool grantFocus = (view.focus || view.id == focus) && !ImGui::GetTopMostPopupModal();
         if (view.id == focus && grantFocus) focusDrawn = true;
         if (view.desc.inspect &&
@@ -1395,6 +1395,48 @@ void EditorWorkspace::Menu() {
 } // namespace vdev
 
 namespace vdev {
+void EditorWorkspace::DetachDocument(bool replaceContext) {
+    m_Application.NativeAvailable(true);
+    if (!m_Application.NativeAvailable() || m_Detached || Interacting())
+        throw std::runtime_error("Finish the current document interaction");
+    std::string error;
+    for (const auto &entry : m_Views) {
+        const auto &view = entry.second;
+        if (view.desc.area == EDITOR_DOCUMENT &&
+            (view.desc.documentBound || view.desc.kind == EDITOR_OVERLAY_VIEW) && !PrepareClose(view, error))
+            throw std::runtime_error(error);
+    }
+    m_DetachedDocument = m_Application.Scope().document;
+    m_ReplacingContext = replaceContext;
+    m_Detached = true;
+    const EditorDocumentChange change{sizeof(change), EDITOR_DOCUMENT_DETACH, m_DetachedDocument,
+                                      m_Application.Revision(), uint32_t(replaceContext)};
+    if (!m_Application.ChangeDocument(change, error)) throw std::runtime_error(error);
+}
+void EditorWorkspace::RestoreDocument() {
+    m_Application.NativeAvailable(true);
+    if (!m_Application.NativeAvailable()) throw std::runtime_error("The native runtime is unavailable");
+    if (!m_Detached || m_Application.Scope().document != m_DetachedDocument) return;
+    const EditorDocumentChange change{sizeof(change), EDITOR_DOCUMENT_RESTORE, m_DetachedDocument,
+                                      m_Application.Revision(), uint32_t(m_ReplacingContext)};
+    std::string error;
+    if (!m_Application.ChangeDocument(change, error)) throw std::runtime_error(error);
+    m_Detached = false;
+    m_DetachedDocument = {};
+}
+void EditorWorkspace::DocumentReplaced(DocumentToken document, uint64_t revision, bool open) {
+    // Retain every old instance through the native commit. A rejected dispatch
+    // restores the original windows, including providers with no saved state.
+    // Once committed, old document-bound windows cannot be used in the new one.
+    m_Application.Attach(document, revision, true, open);
+    DocumentChanging();
+    m_Detached = false;
+    m_DetachedDocument = {};
+    const EditorDocumentChange change{sizeof(change), EDITOR_DOCUMENT_REPLACED, document,
+                                      revision, uint32_t(m_ReplacingContext)};
+    std::string error;
+    if (!m_Application.ChangeDocument(change, error)) throw std::runtime_error(error);
+}
 void EditorWorkspace::DocumentChanging() {
     std::vector<EditorView> close;
     for (const auto &item : m_Views)

@@ -338,6 +338,19 @@ LayoutRestoreData LayoutCommands::ProjectInterface(const LayoutInterfaceData &da
     } else for (auto id : data.selection) if (context->GetObject(id) && !doc->IsDiscarded(id)) ids.push_back(id);
     result.selection = doc->References(ids); result.locked = data.locked;
     if (!data.cameras.empty() && CKCamera::Cast(context->GetObject(data.cameras.front()))) result.camera = doc->Reference(data.cameras.front());
+    auto setups = data.setups;
+    std::stable_sort(setups.begin(), setups.end(), [](const auto &a, const auto &b) { return a.values[1] < b.values[1]; });
+    ObjectRef front;
+    for (const auto &setup : setups) {
+        auto *object = context->GetObject(setup.object);
+        CKGUID guid;
+        if (!object || !LayoutSetupGuid(object, guid)) continue;
+        const auto shown = CKCurve::Cast(object) && CKCurvePoint::Cast(context->GetObject(setup.other)) ? setup.other : setup.object;
+        const auto ref = doc->Reference(shown);
+        if (ref) result.setups.push_back(ref);
+        if (ref && setup.values[2]) front = ref;
+    }
+    if (front) result.setups.push_back(front);
     return result;
 }
 

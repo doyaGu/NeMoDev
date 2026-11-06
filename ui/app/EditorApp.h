@@ -51,7 +51,7 @@
 namespace vdev {
 
 
-class EditorApp : private DocumentFiles::Views, private DocumentCommands::Presentation, private OutputCommands::Presentation {
+class EditorApp : private DocumentCommands::Presentation, private OutputCommands::Presentation {
 public:
     EditorApp();
     bool PrepareUiFrame(float contentScale, std::string &error);
@@ -147,7 +147,7 @@ private:
 
     EditorResponse Command(const char *id, const std::string &path = {});
     bool OpenFile(const std::string &path);
-    LayoutInterfaceData CaptureLayout() const override { return LayoutDataToSave(); }
+    LayoutInterfaceData CaptureLayout() const override { return m_Layouts.LayoutData(); }
     void FileFinished(const DocumentCommands::Result &result) override;
     void HistoryChanged() override { m_Schematics.ClearSelections(); UpdateTitle(); }
     void Quit() override { m_Quit = true; }
@@ -172,15 +172,6 @@ private:
     void OpenStartupDialog(const std::string &name);
     void StartupFrame(bool settled);
 #endif
-    // Detach windows and render resources on the UI thread before native replacement/close.
-    void CloseDocumentViews();
-    void DetachDocument(bool replaceContext) override;
-    void RestoreDocument() override;
-    bool DocumentInteractionActive() const override;
-    LayoutInterfaceData m_DetachedLayout;
-    DocumentToken m_DetachedDocument{};
-    void ReopenSetups(const LayoutInterfaceData &data);
-    LayoutInterfaceData LayoutDataToSave() const;
     std::unique_ptr<SchematicPrintContent> CapturePrint(std::string &error) override;
     PrintChoice ChoosePrinter(const std::string &directory) override;
     bool OpenOutput(const std::string &path, std::string &error) override;

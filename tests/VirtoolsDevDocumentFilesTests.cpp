@@ -35,19 +35,22 @@ void Drain(vdev::EditorSession &state) {
     throw std::runtime_error("file workflow did not finish");
 }
 
-class FileViews : public vdev::DocumentFiles::Views {
+class FileViews : public vdev::DocumentViews {
 public:
     vdev::Document &document;
     CKContext *expected = nullptr;
     bool detached = false;
+    unsigned detachments = 0;
     const std::thread::id thread = std::this_thread::get_id();
     explicit FileViews(vdev::Document &document) : document(document) {}
     void DetachDocument(bool) override {
         CHECK(std::this_thread::get_id() == thread);
         CHECK(!expected || document.Context() == expected);
         detached = true;
+        ++detachments;
     }
     void RestoreDocument() override { detached = false; }
+    void DocumentReplaced(vdev::DocumentToken, uint64_t, bool) override { detached = false; }
     bool DocumentInteractionActive() const override { return false; }
 };
 
@@ -211,13 +214,14 @@ void Workflows() {
     // commits before any unrelated work; old-document work/results expire.
     bool opened = false, staleWork = false, staleCompletion = false;
     detached = false;
+    const auto detachments = views.detachments;
     CHECK(state.files.Open(cmo, {}, [&](const vdev::DocumentFiles::OpenResult &result) {
         CHECK(std::this_thread::get_id() == mainThread);
         opened = result.opened;
     }));
     CHECK(state.RunRuntime("Old document request", [&] { staleWork = true; }, [&](bool) { staleCompletion = true; }));
     Drain(state);
-    CHECK(detached && opened && !staleWork && !staleCompletion);
+    CHECK(!detached && views.detachments == detachments + 1 && opened && !staleWork && !staleCompletion);
     schematicSelection.Validate([&document](const vdev::ElementAddress &address) {
         uint32_t script = 0;
         vdev::ElementRef ref;

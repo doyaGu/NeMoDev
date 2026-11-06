@@ -72,6 +72,16 @@ void EditorSession::DocumentReplaced() {
     objectSelection.Reset();
     objectClipboard = {};
     clipboard = {};
+    if (documentViews) {
+        try {
+            documentViews->DocumentReplaced(HasDocument() ? document->Token() : DocumentToken{},
+                                             document ? document->TopologyRevision() : 0, HasDocument());
+        } catch (const std::exception &error) {
+            Log(LogLevel::Error, std::string("Document switched; cannot restore views: ") + error.what());
+        } catch (...) {
+            Log(LogLevel::Error, "Document switched; cannot restore views");
+        }
+    }
 }
 
 } // namespace vdev

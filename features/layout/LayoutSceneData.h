@@ -50,6 +50,7 @@ struct LayoutRestoreData {
     ObjectRef group{}, camera{};
     std::vector<ObjectRef> selection;
     bool locked = false;
+    std::vector<ObjectRef> setups;
 };
 // A result is replaced only after every page has been read at one revision.
 bool ReadLayoutScene(const EditorClient &, const char *section, LayoutSceneData &,

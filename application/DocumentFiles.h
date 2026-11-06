@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "application/RuntimeOperation.h"
+#include "application/DocumentViews.h"
 #include "core/document/Document.h"
 #include "core/document/DocumentSaver.h"
 #include "core/document/LinkValidation.h"
@@ -20,13 +21,6 @@ class SaveFileOperations;
 // may act on a replacement document.
 class DocumentFiles {
   public:
-    class Views {
-      public:
-        virtual ~Views() = default;
-        virtual void DetachDocument(bool replaceContext) = 0;
-        virtual void RestoreDocument() = 0;
-        virtual bool DocumentInteractionActive() const = 0;
-    };
     class Observer {
       public:
         virtual ~Observer() = default;
