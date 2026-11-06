@@ -1,0 +1,316 @@
+{
+  "description": "统一可配置模块的启动、分阶段推进、停止活动与入口数据释放，移除 EditorApp 对内置功能的逐项推进。",
+  "base_revision": "082995eb75096dce8242c33da9bc3408f684df11",
+  "recorded_utc": "2026-11-06T03:51:29.521225+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "module_interface": {
+    "version": 26,
+    "callbacks": [
+      "start",
+      "update",
+      "stop",
+      "destroy"
+    ],
+    "phases": [
+      "EDITOR_PREPARE_FRAME",
+      "EDITOR_BEFORE_VIEWS",
+      "EDITOR_AFTER_VIEWS"
+    ],
+    "ownership": "入口分配由 destroy 释放；借用的内置控制对象不登记 destroy，只在尝试启动后接收 stop。",
+    "optional_dependencies": "目标存在时排序；缺失或禁用仍允许启动；已存在的可选环被拒绝。"
+  },
+  "changes": [
+    "EditorApplication 按依赖顺序启动、分阶段推进，反向停止；禁用模块不启动、不推进、不停止活动，入口分配仍释放。",
+    "失败启动停止所有已尝试的模块并释放整批数据；推进和停止异常报告模块名称并继续其他模块，拒绝重入及错误线程。",
+    "停止后拒绝新命令、配置切换与重新启动，既有操作仍可完成；入口数据与全部库保留到使用者关闭。",
+    "Debugger 绑定、文件操作连接、运行选项、搜索路径和偏好初始化归对应模块，禁用执行模块时不创建 Debugger。",
+    "文件、输出、资源、诊断、偏好、快照、Layout 菜单/呈现及场景查询使用统一推进；每个原生视口仍由已有集合管理。",
+    "资源库通过可选依赖先于插件管理停止。退出先保存偏好与工作区，再停止活动、关闭视图、释放模块，最后关闭文档与 CK 运行时。",
+    "SDL、原生任务线程、文档候选切换及上下文释放仍由核心管理；编辑器模块接口变化不改变 CK SDK 或文件格式。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-module-lifecycle/build-verified.log",
+      "sha256": "0cf1c9e79b427924167dcad765526ca5704e2b3819df819b78c0685507ac4bbe"
+    },
+    "complete_run": {
+      "total": 243,
+      "passed": 243,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-module-lifecycle/full.xml",
+        "sha256": "11b4790e79cf3f2d45fd2abe503d6e7919cb5d1bfa1d8b2772158830d0d207a8"
+      },
+      "inventory": {
+        "path": "out/phase-six-module-lifecycle/full-inventory.json",
+        "sha256": "d440e30cde096811ac8d00f3f539cffbde416babd1eb0724b6ad87281bed058a"
+      },
+      "log": {
+        "path": "out/phase-six-module-lifecycle/full.log",
+        "sha256": "2b9bfb253ad5555f23b453fa36386113e9c697e38ba904709da362103a1348dc"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-module-lifecycle/full-check.log",
+        "sha256": "f936dbc5fee38b0d9d888c89704602e9baa9b9a54046003255b46c315801b49e"
+      }
+    },
+    "focused_run": {
+      "total": 25,
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-module-lifecycle/focused-final.xml",
+        "sha256": "fcdaeb3df0d62a5c40fbcaf8c1effb0d17fb0b9715918288b7da654c9c809e8b"
+      },
+      "inventory": {
+        "path": "out/phase-six-module-lifecycle/focused-inventory.json",
+        "sha256": "b5d134926c6e99f395b0113a59758ac16d8f3eae4a44c0a7e9c830a3dfa872d6"
+      },
+      "log": {
+        "path": "out/phase-six-module-lifecycle/focused-final.log",
+        "sha256": "7a887519ef20bfcf962bd3de932948e5916e63412f65b91d032e6cfee3e66ae2"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-module-lifecycle/focused-check.log",
+        "sha256": "be4f1bae4ed5d3588c02435dce1778e866deef8bab25d8e7d324e66a20befa42"
+      }
+    },
+    "independent_lifecycle_cases": [
+      "NeMoDevModuleLifecycle.Order",
+      "NeMoDevModuleLifecycle.Disabled",
+      "NeMoDevModuleLifecycle.StartRefusal",
+      "NeMoDevModuleLifecycle.StartException",
+      "NeMoDevModuleLifecycle.UpdateException",
+      "NeMoDevModuleLifecycle.ReentrantCalls",
+      "NeMoDevModuleLifecycle.ThreadChecks",
+      "NeMoDevModuleLifecycle.StopException",
+      "NeMoDevModuleLifecycle.StableAllocations",
+      "NeMoDevModuleLifecycle.StopBeforeRelease",
+      "NeMoDevModuleLifecycle.UnstartedRelease",
+      "NeMoDevModuleLifecycle.UpdateOnly",
+      "NeMoDevModuleLifecycle.OptionalPresent",
+      "NeMoDevModuleLifecycle.OptionalAbsent",
+      "NeMoDevModuleLifecycle.OptionalCycle",
+      "NeMoDevModuleLifecycle.BorrowedControllerLifetime",
+      "VirtoolsDevUi.ModuleLifecycle.DisabledExecution",
+      "VirtoolsDevUi.ModuleLifecycle.ExternalModule",
+      "VirtoolsDevUi.ModuleLifecycle.DisabledExternal",
+      "VirtoolsDevUi.ModuleLifecycle.StartRefusal",
+      "VirtoolsDevUi.ModuleLifecycle.StartException"
+    ],
+    "startup_results": [
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/DisabledExecution.log",
+        "sha256": "b364b36404d1d5ef379bdf89fb1e5bca48775a2946ea86724f3657b615460346"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/DisabledExecution.xml",
+        "sha256": "3f7cb4e0c8ae058185f95f7b07891df1f455f16ba7c4a673e49438e4177a10a8"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/DisabledExternal.log",
+        "sha256": "bb317f0353a9261053629fdb4f0edd80e3f4b122dd13bcf9f42812ee6ea9e326"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/DisabledExternal.xml",
+        "sha256": "6902973ac2c32dc1ae56f4f8bcda524857b74eff4e0c5dd42903b52d8b8ed3d7"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/ExternalModule.log",
+        "sha256": "a87d302e99c98fc9876736fe8338f57f4ac93fcdd6144055aa15af35bb5b2f2e"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/ExternalModule.txt",
+        "sha256": "ee7623eaeb99dd5c2349529564dcc31d1036873807074117450272df969062a2"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/ExternalModule.xml",
+        "sha256": "34428c9e2c5214bf00e32704f6c4b434c2ef8d8f0dba2aee97977e3dc47e56ea"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/StartException.log",
+        "sha256": "ee0fd9b65b3c4f628f2a34db04a22c7131f8e4def022fe29ac5e94c0fa251fa8"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/StartException.txt",
+        "sha256": "0676387483915f02c2b07a6dd55fd66c7c5c76f027dbe51fea9a229489809f03"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/StartRefusal.log",
+        "sha256": "b4fd9bb21a5b79dc5276feb86ea5b7cf7f81d16c1e979ea3984b62677da25861"
+      },
+      {
+        "path": "out/phase-six-module-lifecycle/startup-results/StartRefusal.txt",
+        "sha256": "0676387483915f02c2b07a6dd55fd66c7c5c76f027dbe51fea9a229489809f03"
+      }
+    ],
+    "stable_dispatch": {
+      "case": "NeMoDevModuleLifecycle.StableAllocations",
+      "groups": 1000,
+      "phases_per_group": 3,
+      "heap_allocations": 0,
+      "timing_measured": false
+    },
+    "public_header_consumer": "NeMoDevIdentityHeaders：无 SDK/STL 依赖的 C/C++ 消费者校验生命周期回调及结构布局。",
+    "native_player": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "unselected": 416,
+      "cases": [
+        "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground",
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "report": {
+        "path": "out/phase-six-module-lifecycle/player.xml",
+        "sha256": "9eca124e1077c66ad5b4a29b7738f338de1ad5cd19dc42ec602c257a320067a2"
+      },
+      "log": {
+        "path": "out/phase-six-module-lifecycle/player.log",
+        "sha256": "18f4479fe41b562b9ee8a630182e0db84705d1bb939348f88d5cc37ca6858ed5"
+      },
+      "sample": {
+        "path": "local-samples/data/BBSamples/3D Transformations/Add Control Point.cmo",
+        "sha256": "8c7226ff981b6a56ae5c44bd0695a6d2e4b7c870ff83e6e73e0e769436f09ad4"
+      }
+    },
+    "final_architecture_check": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-module-lifecycle/architecture-final.xml",
+        "sha256": "e3144b7c95467b399781ce1e241203c046452812306300125cd640aacea76158"
+      },
+      "log": {
+        "path": "out/phase-six-module-lifecycle/architecture-final.log",
+        "sha256": "fced49c11f052732106d8fd17b42006caa54fd632b4c4ab927137674a88938f3"
+      }
+    },
+    "post_tidy": {
+      "changes": "将生命周期测试与工作区关闭测试的 CMake 目标定义各自归拢；生产逻辑不变。",
+      "build": {
+        "path": "out/phase-six-module-lifecycle/build-tidy.log",
+        "sha256": "6e45fa4020dcd0834145497ddfaa85ea0d37debfd900229e1915dc3697afc7c8"
+      },
+      "total": 27,
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-module-lifecycle/tidy.xml",
+        "sha256": "55b9c17d35d9242a35bac07895746201444ee5a2a982ac305b328e047362c2a9"
+      },
+      "inventory": {
+        "path": "out/phase-six-module-lifecycle/tidy-inventory.json",
+        "sha256": "0b22f8bcc004a306de6cd1ee9adf2f96bff4310afd2250af6cc17f5b12cddf45"
+      },
+      "log": {
+        "path": "out/phase-six-module-lifecycle/tidy.log",
+        "sha256": "9e3a1419062af1a89e75ef354b5e8a580b8d7fb0d4a2abab5fc8bbbe6947064c"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-module-lifecycle/tidy-check.log",
+        "sha256": "6f82d7729b8f992d1fb34d590b3b1a0ea9eebe88d7fd66bf692bc80103da8418"
+      }
+    }
+  },
+  "regression_diagnosis": {
+    "disabled_execution": {
+      "description": "真实配置确认 runtime.execution 禁用，但旧 EditorApp 仍创建 Debugger；统一启动后通过。",
+      "red_report": {
+        "path": "out/phase-six-module-lifecycle/disabled-red.xml",
+        "sha256": "dfa82930b4b745cf52fd7f194832956328295639062beefb8ade0b819190017e"
+      },
+      "red_log": {
+        "path": "out/phase-six-module-lifecycle/disabled-red.log",
+        "sha256": "4cc8eb67e2797dd29a2354ae3311d911e9f438a6b511b45954e69a02de39dbbc"
+      },
+      "first_fixed_report": {
+        "path": "out/phase-six-module-lifecycle/disabled-first-green.xml",
+        "sha256": "e1e73d8def5064571c963ae0e7f5d4db80861396e5d5187cb4272e4e6a485e88"
+      }
+    },
+    "borrowed_controller": {
+      "description": "接入过程中误把借用控制对象登记为入口分配释放，核心回归崩溃于 DataResourceCommands::CancelPending。改为仅停止已启动对象并补 BorrowedControllerLifetime 独立回归。",
+      "initial_focused_report": {
+        "path": "out/phase-six-module-lifecycle/focused.xml",
+        "sha256": "5a861b1d5cb54ba8ac51c256e2f6756350825cb1155584a0774a73530715927f"
+      },
+      "backtrace": {
+        "path": "out/phase-six-module-lifecycle/editor-backtrace.log",
+        "sha256": "0adc3a3b28ee1ab2db5ed42bc61da5b97ad8dcef98dee37f62e3ae597c545c0c"
+      }
+    }
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-module-lifecycle/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-module-lifecycle/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-module-lifecycle/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-module-lifecycle/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "gpu_rendering_sources": {
+      "ui/native/LayoutRenderer.cpp": {
+        "before_sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "after_sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "before_sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "after_sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "before_sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "after_sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "before_sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "after_sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "before_sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "after_sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      }
+    },
+    "gpu_and_cpu_fallback": "完整 app、双视口、失败注入和原生 Player 回归覆盖稳定纹理、resize、显式截图及通用 fallback。"
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "thresholds_changed": false,
+    "description": "按用户安排等待空闲窗口；本轮只验证调度堆分配，不计时。"
+  },
+  "separate_work": [
+    "runtime-isolation"
+  ]
+}

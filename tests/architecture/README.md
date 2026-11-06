@@ -1,5 +1,20 @@
 # Architecture checks and migration results
 
+Configurable modules now start, advance and stop through EditorApplication in
+dependency order. Frame preparation, presentation publication and interactive
+advance retain their existing positions around menus and view drawing.
+Stopping activity is separate from releasing entry-owned data; borrowed native
+controllers only receive stop after an attempted startup. Optional dependencies
+order resource cancellation before plugin restoration without requiring both
+modules to be enabled. EditorApp retains the native runtime, task drain and
+document/context replacement, while feature modules own their runtime activity.
+Editor modules use interface version 26 and require recompilation; SDK and file
+formats are unchanged. Release checks passed 243/243, with 21 independent
+lifecycle/startup cases and native Player desktop checks 7/7 on Metal.
+The dispatch test counts zero heap allocations across 1,000 groups of all three
+phases; timing acceptance still waits for the user's idle window. Results are
+recorded in `baselines/module-lifecycle-macos-arm64-metal.json`.
+
 View closing separates the read-only `canClose` check from final `closing`
 and `destroy` cleanup. Normal close and provider replacement use the same
 check. All original views remain live until every check and configuration save
