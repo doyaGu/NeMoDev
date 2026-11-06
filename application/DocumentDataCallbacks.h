@@ -8,6 +8,7 @@
 namespace vdev {
 struct DocumentDataRecord;
 struct DocumentDataType;
+bool IsNativeDocumentDataType(const std::string &id);
 // File tasks may finish after the requesting view closes. Stop waits for a
 // running conversion before module state/code is released; old registries can
 // then only preserve opaque data, never enter unloaded module code.

@@ -1,5 +1,6 @@
 #include "application/EditorApplication.h"
-#include "application/EditorModules.h"
+#include "application/detail/EditorValidation.h"
+#include "application/detail/EditorModules.h"
 #include "application/DocumentDataCallbacks.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
@@ -10,21 +11,20 @@
 #include <array>
 #include <deque>
 #include <cmath>
-#include <filesystem>
 #include <set>
 #include <stdexcept>
 #include <string_view>
-#include <type_traits>
 #include <thread>
 #include <utility>
-#if defined(_WIN32)
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 
 namespace vdev {
+using namespace detail;
 
+// Native document-data registration stays beside the existing document adapter.
+// Configuration owns the resulting registry without depending on native headers.
+bool IsNativeDocumentDataType(const std::string &id) {
+    return DefaultDocumentDataRegistry()->Find(id) != nullptr;
+}
 EditorDocumentData BorrowDocumentData(const DocumentDataRecord &record) {
     return {sizeof(EditorDocumentData), record.version, record.owner, record.bytes.data(), uint32_t(record.bytes.size()),
             {record.objects.data(), uint32_t(record.objects.size())}};
@@ -107,58 +107,6 @@ constexpr uint64_t ArrayLimit = uint64_t(64) * Limit;
 // Structure queries also describe every member. Their metadata adds one
 // record level per native value level; leave room for a complete query result.
 constexpr unsigned ValueDepth = 64;
-bool ValueType(EditorValueType type) {
-    return type >= EDITOR_OBJECT && type <= EDITOR_RECORD;
-}
-std::string String(EditorString value) {
-    if (value.size > Limit || (value.size && !value.data))
-        throw std::invalid_argument("Invalid text span");
-    std::string result(value.data ? value.data : "", value.size);
-    if (result.find('\0') != std::string::npos)
-        throw std::invalid_argument("Embedded zero in text");
-    // Strict UTF-8: no overlong encodings, surrogate values or partial scalars.
-    for (size_t i = 0; i < result.size();) {
-        const auto c = static_cast<unsigned char>(result[i++]);
-        if (c < 128)
-            continue;
-        int n = c >= 0xC2 && c <= 0xDF ? 1 : c >= 0xE0 && c <= 0xEF ? 2 : c >= 0xF0 && c <= 0xF4 ? 3 : -1;
-        if (n < 0 || i + n > result.size())
-            throw std::invalid_argument("Invalid UTF-8");
-        const auto first = static_cast<unsigned char>(result[i]);
-        if ((c == 0xE0 && first < 0xA0) || (c == 0xED && first >= 0xA0) || (c == 0xF0 && first < 0x90) ||
-            (c == 0xF4 && first >= 0x90))
-            throw std::invalid_argument("Invalid UTF-8");
-        while (n--)
-            if ((static_cast<unsigned char>(result[i++]) & 0xC0) != 0x80)
-                throw std::invalid_argument("Invalid UTF-8");
-    }
-    return result;
-}
-std::string_view Identifier(EditorString value) {
-    if (!value.data || !value.size || value.size > 256)
-        throw std::invalid_argument("Expected a namespaced identifier");
-    const std::string_view id(value.data, value.size);
-    if (id.find('.') == std::string_view::npos ||
-        id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string_view::npos)
-        throw std::invalid_argument("Expected a namespaced identifier");
-    return id;
-}
-std::string Id(EditorString value) { return std::string(Identifier(value)); }
-bool SameText(const std::string &text, EditorString registered) {
-    // Registration has already copied and validated descriptor text.
-    return text.size() == registered.size &&
-           text.compare(0, text.size(), registered.data ? registered.data : "", registered.size) == 0;
-}
-bool ModuleFile(const std::string &a, const std::string &b) {
-    if (a == b) return true;
-    if (a.empty() || b.empty()) return false;
-    std::error_code error;
-    return std::filesystem::equivalent(std::filesystem::u8path(a), std::filesystem::u8path(b), error) && !error;
-}
-template <class T> void Array(const T *data, uint32_t count) {
-    if (count > 4096 || (count && !data))
-        throw std::invalid_argument("Invalid descriptor array");
-}
 struct ValueBudget {
     uint64_t text = 0, arrays = 0, nodes = 0;
     void Add(uint64_t words, uint64_t bytes) {
@@ -238,11 +186,6 @@ struct ValueBudget {
         return fields;
     }
 };
-template<class Predicate> bool EveryField(const std::vector<EditorField> &fields, const Predicate &test) {
-    for (const auto &field : fields)
-        if (!test(field) || (field.type == EDITOR_RECORD && !EveryField(field.fields, test))) return false;
-    return true;
-}
 EditorStatus EDITOR_CALL Collect(void *data, const EditorValue *values, uint32_t count) {
     try {
         auto &fields = *static_cast<std::vector<EditorField> *>(data);
@@ -291,365 +234,6 @@ EditorStatus Deliver(const EditorResponse &response, const EditorFieldValues &bo
 }
 EditorStatus Send(const EditorResponse &response, EditorSink sink, bool query = true) {
     return sink.write ? Deliver(response, BorrowResponse(response), sink, query) : response.status;
-}
-void CloseLibrary(void *library) {
-    if (!library)
-        return;
-#ifdef _WIN32
-    FreeLibrary(static_cast<HMODULE>(library));
-#else
-    dlclose(library);
-#endif
-}
-struct Module {
-    EditorString id{};
-    void *data = nullptr;
-    void(EDITOR_CALL *destroy)(void *) = nullptr;
-    void(EDITOR_CALL *stop)(void *, const EditorHost *) = nullptr;
-    EditorStatus(EDITOR_CALL *start)(void *, const EditorHost *) = nullptr;
-    void(EDITOR_CALL *update)(void *, const EditorHost *, EditorModulePhase) = nullptr;
-    bool running = false;
-    std::deque<std::string> strings;
-    std::deque<std::vector<EditorParameter>> parameters;
-    std::vector<EditorString> dependencies;
-    std::vector<EditorString> optionalDependencies;
-    std::vector<EditorCommandDesc> commands;
-    std::vector<EditorQueryDesc> queries;
-    std::vector<EditorPropertyDesc> properties;
-    std::vector<EditorValueEditorDesc> editors;
-    std::vector<EditorViewDesc> views;
-    std::vector<EditorMenuDesc> menus;
-    std::vector<EditorBindingDesc> bindings;
-    std::vector<EditorMenuLocation> locations;
-    std::vector<EditorToolDesc> tools;
-    std::vector<EditorToolbarItemDesc> toolbarItems;
-    std::vector<EditorToolbarLocation> toolbars;
-    std::deque<std::vector<EditorField>> toolbarArguments;
-    std::deque<EditorFieldValues> toolbarValues;
-    std::vector<EditorThemeDesc> themes;
-    std::vector<EditorFontDesc> fonts;
-    std::vector<EditorImageDesc> images;
-    std::vector<EditorDocumentDataDesc> documentData;
-    std::shared_ptr<DocumentDataCallbacks> dataCallbacks = std::make_shared<DocumentDataCallbacks>();
-    std::deque<std::vector<EditorField>> themeFields;
-    std::deque<EditorFieldValues> themeValues;
-    std::deque<std::vector<EditorString>> fontFiles;
-    std::deque<std::vector<unsigned char>> imagePixels;
-    void *library = nullptr;
-    std::string file;
-    bool enabled = true;
-    EditorString Text(EditorString text, bool identifier = false) {
-        strings.push_back(identifier ? Id(text) : String(text));
-        return EditorText(strings.back());
-    }
-    const EditorParameter *Parameters(const EditorParameter *source, uint32_t count) {
-        Array(source, count);
-        if (count > 64)
-            throw std::invalid_argument("Too many parameters or fields");
-        parameters.emplace_back();
-        std::set<std::string> keys;
-        for (uint32_t i = 0; i < count; ++i) {
-            auto p = source[i];
-            const auto key = String(p.key);
-            if (key.empty() || !keys.insert(key).second || (!ValueType(p.type) || p.optional > 1 || p.nullable > 1 || (p.nullable && p.type != EDITOR_OBJECT)))
-                throw std::invalid_argument("Invalid parameter schema");
-            p.key = Text(p.key);
-            parameters.back().push_back(p);
-        }
-        return parameters.back().data();
-    }
-    explicit Module(const EditorModuleDesc &source, const std::string &origin) {
-        if (source.size != sizeof(source) || source.version != EDITOR_VERSION)
-            throw std::invalid_argument("Module version/size mismatch");
-        id = Text(source.id, true);
-        data = source.data;
-        stop = source.stop;
-        destroy = source.destroy;
-        start = source.start;
-        update = source.update;
-        Array(source.dependencies, source.dependencyCount);
-        for (uint32_t i = 0; i < source.dependencyCount; ++i)
-            dependencies.push_back(Text(source.dependencies[i], true));
-        Array(source.optionalDependencies, source.optionalDependencyCount);
-        for (uint32_t i = 0; i < source.optionalDependencyCount; ++i)
-            optionalDependencies.push_back(Text(source.optionalDependencies[i], true));
-        Array(source.commands, source.commandCount);
-        Array(source.queries, source.queryCount);
-        Array(source.properties, source.propertyCount);
-        Array(source.editors, source.editorCount);
-        Array(source.views, source.viewCount);
-        Array(source.menus, source.menuCount);
-        Array(source.bindings, source.bindingCount);
-        Array(source.locations, source.locationCount);
-        Array(source.tools, source.toolCount);
-        Array(source.toolbarItems, source.toolbarItemCount);
-        Array(source.toolbars, source.toolbarCount);
-        Array(source.themes, source.themeCount);
-        Array(source.fonts, source.fontCount);
-        Array(source.images, source.imageCount);
-        Array(source.documentData, source.documentDataCount);
-        for (uint32_t i = 0; i < source.documentDataCount; ++i) {
-            auto d = source.documentData[i];
-            if (d.size != sizeof(d) || !d.version) throw std::invalid_argument("Invalid document data descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            if (DefaultDocumentDataRegistry()->Find(String(d.id)))
-                throw std::invalid_argument("Reserved native document data type");
-            documentData.push_back(d);
-        }
-        if (source.themeCount > 256 || source.fontCount > 1024 || source.imageCount > 4096)
-            throw std::invalid_argument("Too many appearance resources");
-        for (uint32_t i = 0; i < source.commandCount; ++i) {
-            auto d = source.commands[i];
-            if (d.size != sizeof(d) || !d.run || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
-                d.effect < EDITOR_DOCUMENT_EDIT || d.effect > EDITOR_RUNTIME_CONTROL ||
-                (d.preview && d.effect != EDITOR_DOCUMENT_EDIT) ||
-                (d.commitPreview && (!d.preview || d.effect != EDITOR_DOCUMENT_EDIT)) ||
-                ((d.effect == EDITOR_DOCUMENT_EDIT || d.effect == EDITOR_DOCUMENT_CHANGE) && d.area != EDITOR_DOCUMENT))
-                throw std::invalid_argument("Invalid command descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.title = Text(d.title);
-            d.view = Text(d.view, d.view.size != 0);
-            if (!d.title.size)
-                throw std::invalid_argument("Missing command title");
-            d.parameters = Parameters(d.parameters, d.count);
-            commands.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.queryCount; ++i) {
-            auto d = source.queries[i];
-            if (d.size != sizeof(d) || !d.read ||
-                (d.refresh < EDITOR_QUERY_DOCUMENT || d.refresh > EDITOR_QUERY_VERSIONED) ||
-                bool(d.revision) != (d.refresh == EDITOR_QUERY_VERSIONED) ||
-                (d.flags & ~uint32_t(EDITOR_QUERY_RETAINED_REFERENCES)) ||
-                (d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION))
-                throw std::invalid_argument("Invalid query descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.parameters = Parameters(d.parameters, d.count);
-            d.fields = Parameters(d.fields, d.fieldCount);
-            queries.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.propertyCount; ++i) {
-            auto d = source.properties[i];
-            if (d.size != sizeof(d))
-                throw std::invalid_argument("Invalid property descriptor");
-            d.id = Text(d.id, true);
-            d.label = Text(d.label);
-            d.query = Text(d.query, true);
-            d.field = Text(d.field);
-            d.command = Text(d.command, true);
-            d.argument = Text(d.argument);
-            d.editor = Text(d.editor, true);
-            d.choices = Text(d.choices, d.choices.size != 0);
-            properties.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.editorCount; ++i) {
-            auto d = source.editors[i];
-            if (d.size != sizeof(d) || !d.draw || !ValueType(d.type))
-                throw std::invalid_argument("Invalid editor descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.title = Text(d.title);
-            editors.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.viewCount; ++i) {
-            if (source.views[i].size != sizeof(EditorViewDesc))
-                throw std::invalid_argument("Invalid view descriptor size");
-            auto d = source.views[i];
-            if (!d.create || !d.draw || !d.destroy || d.kind < EDITOR_WINDOW_VIEW || d.kind > EDITOR_OVERLAY_VIEW ||
-                d.singleInstance > 1 || d.documentBound > 1 || (d.documentBound && d.area != EDITOR_DOCUMENT) ||
-                d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION || (d.count && !d.navigate) ||
-                bool(d.saveState) != bool(d.restoreState) || bool(d.stateVersion) != bool(d.saveState) ||
-                (d.pick && d.kind != EDITOR_WINDOW_VIEW))
-                throw std::invalid_argument("Invalid view descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.title = Text(d.title);
-            d.parameters = Parameters(d.parameters, d.count);
-            if ((!d.inspect && (d.fieldCount || d.inspectRevision)) || (d.inspect && !d.fieldCount))
-                throw std::invalid_argument("Invalid view inspection");
-            d.fields = Parameters(d.fields, d.fieldCount);
-            d.settings = Parameters(d.settings, d.settingCount);
-            d.defaultTool = Text(d.defaultTool, d.defaultTool.size != 0);
-            if (d.settingCount && (!d.saveState || d.documentBound || d.kind != EDITOR_WINDOW_VIEW))
-                throw std::invalid_argument("Invalid persistent view settings");
-            for (uint32_t j = 0; j < d.settingCount; ++j)
-                if (d.settings[j].type == EDITOR_OBJECT || d.settings[j].type == EDITOR_OBJECT_LIST)
-                    throw std::invalid_argument("Object references cannot be persistent view settings");
-            views.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.menuCount; ++i) {
-            auto d = source.menus[i];
-            d.id = Text(d.id, true);
-            d.action = Text(d.action, true);
-            d.location = Text(d.location, true);
-            d.checked = Text(d.checked, d.checked.size != 0);
-            d.label = Text(d.label);
-            menus.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.bindingCount; ++i) {
-            auto d = source.bindings[i];
-            if (d.phase < EDITOR_KEY_PRESSED || d.phase > EDITOR_KEY_RELEASED)
-                throw std::invalid_argument("Invalid input phase");
-            d.action = Text(d.action, true);
-            d.chord = Text(d.chord);
-            d.view = Text(d.view, d.view.size != 0);
-            bindings.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.locationCount; ++i) {
-            auto location = source.locations[i];
-            location.id = Text(location.id, true);
-            location.title = Text(location.title);
-            locations.push_back(location);
-        }
-        for (uint32_t i = 0; i < source.toolCount; ++i) {
-            auto d = source.tools[i];
-            if (d.size != sizeof(d) || !d.input) throw std::invalid_argument("Invalid view tool");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.view = Text(d.view, true);
-            d.title = Text(d.title);
-            if (!d.title.size) throw std::invalid_argument("Missing tool title");
-            tools.push_back(d);
-        }
-        for (auto &tool : tools) {
-            EditorCommandDesc command{};
-            command.size = sizeof(command);
-            command.id = tool.id;
-            command.provider = tool.provider;
-            command.title = tool.title;
-            command.data = &tool;
-            command.area = EDITOR_WORKSPACE;
-            command.effect = EDITOR_SESSION_CHANGE;
-            command.view = tool.view;
-            command.run = [](void *data, const EditorHost *host, const EditorRequest *r, EditorSink) {
-                return host->selectTool(host->data, r->scope, static_cast<EditorToolDesc *>(data)->id);
-            };
-            command.state = [](void *data, const EditorHost *host, const EditorRequest *r) {
-                const auto &d = *static_cast<EditorToolDesc *>(data);
-                return d.state ? d.state(d.data, host, r) : EDITOR_OK;
-            };
-            commands.push_back(command);
-        }
-        for (uint32_t i = 0; i < source.toolbarCount; ++i) {
-            auto d = source.toolbars[i];
-            d.id = Text(d.id, true);
-            d.title = Text(d.title);
-            d.view = Text(d.view, d.view.size != 0);
-            toolbars.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.toolbarItemCount; ++i) {
-            auto d = source.toolbarItems[i];
-            if (d.size != sizeof(d) || (!d.draw && !d.action.size) || d.count > 64 || !std::isfinite(d.x) ||
-                !std::isfinite(d.y) || !std::isfinite(d.width) || !std::isfinite(d.height) || d.width <= 0 ||
-                d.height <= 0 || (d.flags & ~(EDITOR_TOOLBAR_RIGHT | EDITOR_TOOLBAR_STRETCH)))
-                throw std::invalid_argument("Invalid toolbar item");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.location = Text(d.location, true);
-            d.title = Text(d.title);
-            d.action = Text(d.action, d.action.size != 0);
-            d.checked = Text(d.checked, d.checked.size != 0);
-            toolbarArguments.emplace_back();
-            if (CopyEditorFields(toolbarArguments.back(), d.arguments, d.count) != EDITOR_OK ||
-                !EveryField(toolbarArguments.back(),
-                            [](const auto &v) { return v.type != EDITOR_OBJECT && v.type != EDITOR_OBJECT_LIST; }))
-                throw std::invalid_argument("Invalid toolbar arguments");
-            toolbarValues.push_back(BorrowEditorFields(toolbarArguments.back()));
-            d.arguments = toolbarValues.back().data();
-            toolbarItems.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.themeCount; ++i) {
-            auto d = source.themes[i];
-            if (d.size != sizeof(d) || d.count > 4096) throw std::invalid_argument("Invalid theme descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.title = Text(d.title);
-            d.parent = Text(d.parent, d.parent.size != 0);
-            EditorValue record{};
-            record.key = EDITOR_TEXT("theme");
-            record.type = EDITOR_RECORD;
-            record.fields = {d.values, d.count};
-            std::vector<EditorField> copied;
-            if (CopyEditorFields(copied, &record, 1) != EDITOR_OK) throw std::invalid_argument("Invalid theme values");
-            themeFields.push_back(std::move(copied.front().fields));
-            for (const auto &f : themeFields.back()) {
-                Id(EditorText(f.key));
-                const bool color =
-                    f.key.compare(0, 6, "color.") == 0 && f.type == EDITOR_INTEGER_VALUE && f.integer <= UINT32_MAX;
-                const bool metric =
-                    f.key.compare(0, 7, "metric.") == 0 &&
-                    ((f.type == EDITOR_REAL_VALUE && f.real >= 0 && f.real <= 10000) ||
-                     (f.type == EDITOR_REAL_LIST && f.reals.size() == 2 &&
-                      std::all_of(f.reals.begin(), f.reals.end(), [](double v) { return v >= 0 && v <= 10000; })));
-                const bool resource = (f.key.compare(0, 5, "font.") == 0 || f.key.compare(0, 6, "image.") == 0) &&
-                                      f.type == EDITOR_TEXT_VALUE;
-                if (!color && !metric && !resource) throw std::invalid_argument("Invalid theme role: " + f.key);
-                if (resource) Id(EditorText(f.text));
-            }
-            themeValues.push_back(BorrowEditorFields(themeFields.back()));
-            d.values = themeValues.back().data();
-            themes.push_back(d);
-        }
-        for (uint32_t i = 0; i < source.fontCount; ++i) {
-            auto d = source.fonts[i];
-            if (d.size != sizeof(d) || !d.count || d.count > 16 || !std::isfinite(d.height) || d.height < 4 ||
-                d.height > 128)
-                throw std::invalid_argument("Invalid font descriptor");
-            Array(d.files, d.count);
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.title = Text(d.title);
-            fontFiles.emplace_back();
-            for (uint32_t j = 0; j < d.count; ++j) {
-                auto name = String(d.files[j]);
-                if (name.empty() && j != 0) throw std::invalid_argument("Only the first font source may be built-in");
-                if (!name.empty()) {
-                    auto path = std::filesystem::u8path(name);
-                    if (path.is_relative()) {
-                        if (origin.empty()) throw std::invalid_argument("Relative font path requires a module library");
-                        path = std::filesystem::u8path(origin).parent_path() / path;
-                    }
-                    name = path.lexically_normal().u8string();
-                }
-                fontFiles.back().push_back(Text(EditorText(name)));
-            }
-            d.files = fontFiles.back().data();
-            fonts.push_back(d);
-        }
-        uint64_t imageBytes = 0;
-        for (uint32_t i = 0; i < source.imageCount; ++i) {
-            auto d = source.images[i];
-            const uint64_t bytes = uint64_t(d.width) * d.height * 4;
-            if (d.size != sizeof(d) || !d.width || !d.height || d.width > 16384 || d.height > 16384 ||
-                bytes > 64 * 1024 * 1024 || bytes != d.byteCount || !d.pixels ||
-                (imageBytes += bytes) > 128 * 1024 * 1024)
-                throw std::invalid_argument("Invalid RGBA image descriptor");
-            d.id = Text(d.id, true);
-            d.provider = Text(d.provider, true);
-            d.title = Text(d.title);
-            imagePixels.emplace_back(d.pixels, d.pixels + d.byteCount);
-            d.pixels = imagePixels.back().data();
-            images.push_back(d);
-        }
-    }
-    void Destroy() {
-        dataCallbacks->Close();
-        const auto callback = destroy;
-        destroy = nullptr;
-        if (callback) { try { callback(data); } catch (...) {} }
-    }
-    ~Module() { dataCallbacks->Close(); CloseLibrary(library); }
-};
-template <class T> bool Schema(const T &a, const T &b) {
-    if (a.count != b.count)
-        return false;
-    for (uint32_t i = 0; i < a.count; ++i)
-        if (a.parameters[i].type != b.parameters[i].type || a.parameters[i].optional != b.parameters[i].optional || a.parameters[i].nullable != b.parameters[i].nullable ||
-            String(a.parameters[i].key) != String(b.parameters[i].key))
-            return false;
-    return true;
 }
 } // namespace
 
@@ -721,12 +305,7 @@ struct EditorApplication::State {
     std::function<bool()> nativeAvailable;
     EditorHost host{};
     std::thread::id thread = std::this_thread::get_id();
-    std::vector<std::unique_ptr<Module>> modules;
-    std::vector<Module *> activation;
-    std::vector<EditorModuleInfo> moduleInfo;
-    std::vector<EditorModuleSetting> moduleSettings;
-    std::string sourceFile;
-    EditorConfiguration defaults;
+    RegisteredModules modules;
     std::map<std::string, const EditorCommandDesc *> commands;
     std::map<std::string, const EditorQueryDesc *, std::less<>> queries;
     EditorValueEditors editors;
@@ -757,8 +336,6 @@ struct EditorApplication::State {
     EditorConfiguration configuration;
     std::map<std::string, std::vector<EditorKey>> shortcuts;
     bool active = false, available = false, writable = false, stopped = false;
-    bool assembling = false, loading = false, discarding = false;
-    bool modulesStarted = false, modulesStopped = false, moduleCallback = false;
     std::map<std::string, std::string> locations;
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
     unsigned readOnlyCallbacks = 0, checking = 0;
@@ -858,49 +435,6 @@ struct EditorApplication::State {
         return doc && doc->NativeId(object) != 0;
     }
     bool Thread() const { return thread == std::this_thread::get_id(); }
-    std::vector<Module *> ModuleOrder() const {
-        std::map<std::string, Module *> named;
-        for (const auto &module : modules) if (module->enabled) named.emplace(String(module->id), module.get());
-        std::set<Module *> visiting, done;
-        std::vector<Module *> order;
-        const auto visit = [&](const auto &self, Module *module) -> void {
-            if (done.count(module)) return;
-            if (!visiting.insert(module).second)
-                throw std::invalid_argument("Module dependency cycle: " + String(module->id));
-            for (auto dependency : module->dependencies) {
-                const auto found = named.find(String(dependency));
-                if (found == named.end())
-                    throw std::invalid_argument("Missing module dependency: " + String(module->id) + " -> " + String(dependency));
-                self(self, found->second);
-            }
-            for (auto dependency : module->optionalDependencies) {
-                const auto found = named.find(String(dependency));
-                if (found != named.end()) self(self, found->second);
-            }
-            visiting.erase(module);
-            done.insert(module);
-            order.push_back(module);
-        };
-        for (const auto &module : modules) if (module->enabled) visit(visit, module.get());
-        return order;
-    }
-    void DiscardModules(size_t first) {
-        discarding = true;
-        auto order = activation;
-        if (order.empty()) {
-            try { order = ModuleOrder(); }
-            catch (...) { for (const auto &module : modules) order.push_back(module.get()); }
-        }
-        for (const auto &module : modules)
-            if (std::find(order.begin(), order.end(), module.get()) == order.end()) order.push_back(module.get());
-        std::set<Module *> removed;
-        for (size_t i = first; i < modules.size(); ++i) removed.insert(modules[i].get());
-        for (auto it = order.rbegin(); it != order.rend(); ++it)
-            if (removed.count(*it)) (*it)->Destroy();
-        // All module data is released while every library is still loaded.
-        modules.resize(first);
-        discarding = false;
-    }
     bool Valid(EditorScope scope) const {
         return active && document.value && scope.document == document && (!scope.view || scopes.count(scope.view));
     }
@@ -1061,7 +595,7 @@ struct EditorApplication::State {
     }
     EditorStatus Check(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields, bool fromDraft = false) {
         if (!Thread() || !Valid(scope, command.area)) return EDITOR_STALE;
-        if (readOnlyCallbacks || modulesStopped) return EDITOR_REFUSED;
+        if (readOnlyCallbacks || modules.Stopped()) return EDITOR_REFUSED;
         const bool native = command.effect != EDITOR_SESSION_CHANGE;
         // Window navigation can close the owner of a draft. Document session
         // changes, including selection, still wait for the draft to finish.
@@ -1488,7 +1022,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
             const EditorCommandDesc *command = selected == s.commands.end() ? nullptr : selected->second;
             if (request->handler.size) {
                 command = nullptr;
-                for (const auto &module : s.modules)
+                for (const auto &module : s.modules.All())
                     for (const auto &candidate : module->commands)
                         if (String(candidate.id) == Id(id) && String(candidate.provider) == String(request->handler))
                             command = &candidate;
@@ -1935,329 +1469,29 @@ EditorStatus EditorApplication::QueryRevision(const std::string &id, uint64_t &v
 
 bool EditorApplication::Register(const EditorModuleDesc &module, std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || s.active || s.stopped || s.discarding) {
-        error = "Registration is closed";
-        return false;
-    }
-    try {
-        auto copy = std::make_unique<Module>(module, s.sourceFile);
-        copy->file = s.sourceFile;
-        for (const auto &setting : s.moduleSettings) if (setting.id == String(copy->id)) {
-            copy->enabled = setting.enabled && (!setting.builtin || copy->file.empty()) &&
-                (setting.path.empty() || ModuleFile(setting.path, copy->file));
-        }
-        if (!copy->enabled) { s.modules.push_back(std::move(copy)); return true; }
-        for (auto &m : s.modules)
-            if (m->enabled && String(m->id) == String(copy->id))
-                throw std::invalid_argument("Duplicate module identifier");
-        // Validate every candidate against both existing modules and itself.
-        auto validate = [&](auto member) {
-            using Table = std::remove_reference_t<decltype(copy.get()->*member)>;
-            std::map<std::pair<std::string, std::string>, const typename Table::value_type *> seen;
-            std::map<std::string, const typename Table::value_type *> schemas;
-            auto add = [&](Module &m) {
-                if (!m.enabled) return;
-                for (auto &d : m.*member) {
-                    const auto key = std::make_pair(String(d.id), String(d.provider));
-                    if (!seen.emplace(key, &d).second)
-                        throw std::invalid_argument("Duplicate contribution provider");
-                    auto inserted = schemas.emplace(key.first, &d);
-                    if constexpr (std::is_same_v<Table, std::vector<EditorCommandDesc>> ||
-                                  std::is_same_v<Table, std::vector<EditorQueryDesc>> ||
-                                  std::is_same_v<Table, std::vector<EditorViewDesc>>)
-                        if (!inserted.second && !Schema(*inserted.first->second, d))
-                            throw std::invalid_argument("Incompatible contribution schema: " + key.first);
-                    if constexpr (std::is_same_v<Table, std::vector<EditorToolDesc>>) {
-                        if (!inserted.second && String(d.view) != String(inserted.first->second->view))
-                            throw std::invalid_argument("Incompatible tool view");
-                    }
-                    if constexpr (std::is_same_v<Table, std::vector<EditorCommandDesc>>) {
-                        if (!inserted.second && String(d.view) != String(inserted.first->second->view))
-                            throw std::invalid_argument("Incompatible command view");
-                        if (!inserted.second && (d.area != inserted.first->second->area || d.effect != inserted.first->second->effect))
-                            throw std::invalid_argument("Incompatible command effect or scope");
-                    }
-                    if constexpr (std::is_same_v<Table, std::vector<EditorQueryDesc>>) {
-                        if (!inserted.second) {
-                            const auto &other = *inserted.first->second;
-                            if (d.area != other.area || d.fieldCount != other.fieldCount || d.flags != other.flags)
-                                throw std::invalid_argument("Incompatible query fields");
-                            for (uint32_t i = 0; i < d.fieldCount; ++i)
-                                if (d.fields[i].type != other.fields[i].type ||
-                                    String(d.fields[i].key) != String(other.fields[i].key))
-                                    throw std::invalid_argument("Incompatible query fields");
-                        }
-                    }
-                    if constexpr (std::is_same_v<Table, std::vector<EditorViewDesc>>) {
-                        if (!inserted.second &&
-                            (d.kind != inserted.first->second->kind || d.area != inserted.first->second->area ||
-                             d.singleInstance != inserted.first->second->singleInstance ||
-                             bool(d.navigate) != bool(inserted.first->second->navigate) ||
-                             bool(d.pick) != bool(inserted.first->second->pick)))
-                            throw std::invalid_argument("Incompatible view presentation");
-                        if (!inserted.second) {
-                            const auto &other = *inserted.first->second;
-                            if (bool(d.inspect) != bool(other.inspect) || d.fieldCount != other.fieldCount)
-                                throw std::invalid_argument("Incompatible view inspection");
-                            for (uint32_t i = 0; i < d.fieldCount; ++i)
-                                if (d.fields[i].type != other.fields[i].type || String(d.fields[i].key) != String(other.fields[i].key))
-                                    throw std::invalid_argument("Incompatible view inspection");
-                        }
-                    }
-                }
-            };
-            for (auto &m : s.modules)
-                add(*m);
-            add(*copy);
-        };
-        validate(&Module::commands);
-        validate(&Module::queries);
-        validate(&Module::editors);
-        validate(&Module::views);
-        validate(&Module::tools);
-        validate(&Module::toolbarItems);
-        validate(&Module::themes);
-        validate(&Module::fonts);
-        validate(&Module::images);
-        validate(&Module::documentData);
-        std::set<std::string> properties, menus, locations, toolbarLocations;
-        auto unique = [&](Module &m) {
-            if (!m.enabled) return;
-            for (auto &d : m.locations)
-                if (!locations.insert(String(d.id)).second)
-                    throw std::invalid_argument("Duplicate menu location");
-            for (auto &d : m.toolbars)
-                if (!toolbarLocations.insert(String(d.id)).second)
-                    throw std::invalid_argument("Duplicate toolbar location");
-            for (auto &d : m.properties)
-                if (!properties.insert(String(d.id)).second)
-                    throw std::invalid_argument("Duplicate property");
-            for (auto &d : m.menus)
-                if (!menus.insert(String(d.id)).second)
-                    throw std::invalid_argument("Duplicate menu item");
-        };
-        for (auto &m : s.modules)
-            unique(*m);
-        unique(*copy);
-        s.modules.push_back(std::move(copy));
-        return true;
-    } catch (const std::exception &e) {
-        error = e.what();
-        return false;
-    }
+    if (!s.Thread() || s.active || s.stopped) { error = "Registration is closed"; return false; }
+    return s.modules.Register(module, error);
 }
 bool EditorApplication::Load(const std::string &path, std::string &error) {
-    if (!m_State->Thread() || m_State->active || m_State->stopped || m_State->loading || m_State->discarding) {
-        error = "Registration is closed";
-        return false;
-    }
-    struct Loading { bool &flag; ~Loading() { flag = false; } } loading{m_State->loading};
-    m_State->loading = true;
-    std::filesystem::path file;
-    try {
-        if (path.empty() || path.find('\0') != std::string::npos) throw std::invalid_argument("Invalid module path");
-        file = std::filesystem::canonical(std::filesystem::u8path(path));
-        if (!std::filesystem::is_regular_file(file)) throw std::invalid_argument("Expected a module file");
-    } catch (const std::exception &failure) {
-        error = "Cannot load module: " + path + ": " + failure.what();
-        return false;
-    }
-#ifdef _WIN32
-    void *library = LoadLibraryExW(file.c_str(), nullptr,
-                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    auto entry =
-        library ? reinterpret_cast<EditorModuleEntry>(GetProcAddress(static_cast<HMODULE>(library), "NeMoDevModule"))
-                : nullptr;
-#else
-    void *library = dlopen(file.c_str(), RTLD_NOW | RTLD_LOCAL);
-    auto entry = library ? reinterpret_cast<EditorModuleEntry>(dlsym(library, "NeMoDevModule")) : nullptr;
-#endif
-    if (!entry) {
-        CloseLibrary(library);
-        error = "Cannot load module entry: " + path;
-        return false;
-    }
-    EditorModuleDesc desc{};
-    desc.size = sizeof(desc);
-    desc.version = EDITOR_VERSION;
-    struct FileScope {
-        std::string &value, previous;
-        ~FileScope() { value = std::move(previous); }
-    } origin{m_State->sourceFile, m_State->sourceFile};
-    m_State->sourceFile = file.u8string();
-    const auto discard = [&] {
-        if (desc.destroy) {
-            try {
-                desc.destroy(desc.data);
-            } catch (...) {
-            }
-        }
-        CloseLibrary(library);
-    };
-    try {
-        if (entry(Host(), &desc) != EDITOR_OK) {
-            discard();
-            error = "Module entry failed";
-            return false;
-        }
-        for (const auto &setting : m_State->moduleSettings)
-            if (setting.enabled && ModuleFile(setting.path, m_State->sourceFile) && setting.id != Id(desc.id)) {
-                discard();
-                error = "Configured module has a different identifier: " + setting.id;
-                return false;
-            }
-        if (!Register(desc, error)) {
-            discard();
-            return false;
-        }
-        m_State->modules.back()->library = library;
-        return true;
-    } catch (...) {
-        discard();
-        error = "Module entry raised an exception";
-        return false;
-    }
+    auto &s = *m_State;
+    if (!s.Thread() || s.active || s.stopped) { error = "Registration is closed"; return false; }
+    return s.modules.Load(Host(), path, error);
 }
 bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources, EditorDrawingVersion drawing,
                                  std::string &error, const EditorConfiguration &configuration,
                                  const std::vector<EditorModuleSetting> &settings, const EditorConfiguration &overrides) {
     auto &s = *m_State;
-    if (!s.Thread() || s.active || s.stopped || s.assembling || s.loading || s.discarding) {
-        error = "Registration is closed";
-        return false;
-    }
-    const auto first = s.modules.size();
-    std::string source;
-    s.assembling = true;
-    try {
-        std::set<std::string> ids;
-        auto selected = sources;
-        s.moduleSettings = settings;
-        for (auto &setting : s.moduleSettings) {
-            Id(EditorText(setting.id));
-            if (!ids.insert(setting.id).second || (setting.builtin && !setting.path.empty()))
-                throw std::invalid_argument("Invalid or duplicate module setting: " + setting.id);
-            if (setting.id == "application.operations" && (!setting.enabled || setting.builtin || !setting.path.empty()))
-                throw std::invalid_argument("The application operation registry cannot be replaced or disabled");
-            if (!setting.path.empty()) {
-                setting.path = std::filesystem::weakly_canonical(std::filesystem::absolute(std::filesystem::u8path(setting.path))).u8string();
-                if (setting.enabled && std::none_of(selected.begin(), selected.end(), [&](const auto &entry) {
-                    return ModuleFile(entry.file, setting.path);
-                })) {
-                    const auto file = setting.path;
-                    selected.push_back({file, [file](auto &editor, auto &error) { return editor.Load(file, error); }, file});
-                }
-            }
-        }
-        for (const auto &entry : selected) {
-            source = entry.name;
-            error.clear();
-            if (source.empty() || !entry.collect) throw std::invalid_argument("Invalid module source");
-            if (!entry.file.empty()) {
-                const auto file = std::filesystem::weakly_canonical(std::filesystem::u8path(entry.file)).u8string();
-                if (std::any_of(s.moduleSettings.begin(), s.moduleSettings.end(), [&](const auto &setting) {
-                    return !setting.enabled && !setting.path.empty() && ModuleFile(setting.path, file);
-                })) continue;
-            }
-            const auto count = s.modules.size();
-            if (!entry.collect(*this, error)) throw std::runtime_error(error.empty() ? "Module collection failed" : error);
-            if (s.modules.size() == count) throw std::runtime_error("Module source registered no module");
-        }
-        for (const auto &setting : s.moduleSettings) if (setting.enabled &&
-            std::none_of(s.modules.begin(), s.modules.end(), [&](const auto &module) {
-                return module->enabled && String(module->id) == setting.id;
-            })) throw std::runtime_error("Configured module is missing or has a different identifier: " + setting.id);
-        std::map<std::string, EditorModuleInfo> catalog;
-        for (const auto &module : s.modules) {
-            const auto id = String(module->id);
-            if (!catalog.count(id) || module->enabled) catalog[id] = {id, module->file, module->enabled};
-        }
-        for (const auto &setting : s.moduleSettings) if (!catalog.count(setting.id))
-            catalog[setting.id] = {setting.id, setting.path, false};
-        const auto provides = [](const Module &module, const ProviderChoice &choice) {
-            const auto has = [&](auto member) {
-                for (const auto &desc : module.*member)
-                    if (String(desc.id) == choice.id && String(desc.provider) == choice.provider) return true;
-                return false;
-            };
-            return choice.kind == "command"   ? has(&Module::commands)
-                   : choice.kind == "query"   ? has(&Module::queries)
-                   : choice.kind == "editor"  ? has(&Module::editors)
-                   : choice.kind == "view"    ? has(&Module::views)
-                   : choice.kind == "theme"   ? has(&Module::themes)
-                   : choice.kind == "font"    ? has(&Module::fonts)
-                   : choice.kind == "document-data" ? has(&Module::documentData)
-                   : choice.kind == "image"   ? has(&Module::images)
-                   : choice.kind == "toolbar" ? has(&Module::toolbarItems)
-                                              : false;
-        };
-        s.defaults = configuration;
-        // Only choices removed by module selection may disappear from the
-        // defaults. A misspelled or otherwise unavailable provider still fails.
-        s.defaults.providers.erase(std::remove_if(s.defaults.providers.begin(), s.defaults.providers.end(), [&](const auto &choice) {
-            const auto has = [&](bool enabled) {
-                return std::any_of(s.modules.begin(), s.modules.end(), [&](const auto &module) {
-                    return module->enabled == enabled && provides(*module, choice);
-                });
-            };
-            return !has(true) && has(false);
-        }), s.defaults.providers.end());
-        std::vector<std::unique_ptr<Module>> disabled;
-        s.discarding = true;
-        for (auto &module : s.modules) if (!module->enabled) disabled.push_back(std::move(module));
-        s.modules.erase(std::remove(s.modules.begin(), s.modules.end(), nullptr), s.modules.end());
-        for (auto it = disabled.rbegin(); it != disabled.rend(); ++it) (*it)->Destroy();
-        disabled.clear();
-        s.discarding = false;
-        auto effective = s.defaults;
-        for (const auto &choice : overrides.providers) {
-            effective.providers.erase(std::remove_if(effective.providers.begin(), effective.providers.end(), [&](const auto &old) {
-                return old.kind == choice.kind && old.id == choice.id;
-            }), effective.providers.end());
-            effective.providers.push_back(choice);
-        }
-        std::set<std::string> bound;
-        for (const auto &binding : overrides.bindings) {
-            if (bound.insert(binding.first).second)
-                effective.bindings.erase(std::remove_if(effective.bindings.begin(), effective.bindings.end(), [&](const auto &old) { return old.first == binding.first; }), effective.bindings.end());
-            effective.bindings.push_back(binding);
-        }
-        for (const auto &menu : overrides.menus) {
-            effective.menus.erase(std::remove_if(effective.menus.begin(), effective.menus.end(), [&](const auto &old) { return old.id == menu.id; }), effective.menus.end());
-            effective.menus.push_back(menu);
-        }
-        for (const auto &item : overrides.toolbarItems) {
-            effective.toolbarItems.erase(std::remove_if(effective.toolbarItems.begin(), effective.toolbarItems.end(),
-                                                        [&](const auto &old) { return old.id == item.id; }),
-                                         effective.toolbarItems.end());
-            effective.toolbarItems.push_back(item);
-        }
-        s.assembling = false;
-        source = "activation";
-        if (Activate(drawing, error, effective)) {
-            s.moduleInfo.clear(); for (const auto &info : catalog) s.moduleInfo.push_back(info.second);
-            s.moduleSettings.clear(); error.clear(); return true;
-        }
-    } catch (const std::exception &failure) {
-        error = failure.what();
-    } catch (...) {
-        error = "Module collection raised an exception";
-    }
-    s.assembling = true;
-    s.DiscardModules(std::min(first, s.modules.size()));
-    s.moduleSettings.clear(); s.defaults = {};
-    s.assembling = false;
-    error = "Editor modules (" + source + "): " + error;
-    return false;
+    if (!s.Thread() || s.active || s.stopped) { error = "Registration is closed"; return false; }
+    return s.modules.Assemble(*this, sources, drawing, error, configuration, settings, overrides);
 }
 std::vector<EditorModuleInfo> EditorApplication::Modules() const {
-    return m_State->Thread() ? m_State->moduleInfo : std::vector<EditorModuleInfo>{};
+    return m_State->Thread() ? m_State->modules.Information() : std::vector<EditorModuleInfo>{};
 }
-const EditorConfiguration &EditorApplication::DefaultConfiguration() const { return m_State->defaults; }
+const EditorConfiguration &EditorApplication::DefaultConfiguration() const { return m_State->modules.Defaults(); }
 std::string EditorApplication::ProviderModule(const ProviderChoice &choice) const {
     if (!m_State->Thread()) return {};
     if (choice.kind == "toolbar-item") {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &item : module->toolbarItems)
                 if (String(item.id) == choice.id) return String(module->id);
         for (const auto &item : m_State->toolbarItems)
@@ -2265,7 +1499,7 @@ std::string EditorApplication::ProviderModule(const ProviderChoice &choice) cons
         return {};
     }
     if (choice.kind == "menu") {
-        for (const auto &module : m_State->modules) for (const auto &menu : module->menus)
+        for (const auto &module : m_State->modules.All()) for (const auto &menu : module->menus)
             if (String(menu.id) == choice.id) return String(module->id);
         return {};
     }
@@ -2277,7 +1511,7 @@ std::string EditorApplication::ProviderModule(const ProviderChoice &choice) cons
         return {};
     }
     const auto find = [&](auto member) -> std::string {
-        for (const auto &module : m_State->modules) for (const auto &desc : module.get()->*member)
+        for (const auto &module : m_State->modules.All()) for (const auto &desc : module.get()->*member)
             if (String(desc.id) == choice.id && String(desc.provider) == choice.provider) return String(module->id);
         return {};
     };
@@ -2298,40 +1532,20 @@ std::shared_ptr<const DocumentDataRegistry> EditorApplication::DataTypes() const
 bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string &error,
                                  const EditorConfiguration &configuration) {
     auto &s = *m_State;
-    if (!s.Thread() || s.active || s.stopped || s.assembling || s.loading || s.discarding) {
+    if (!s.Thread() || s.active || s.stopped || s.modules.Busy()) {
         error = "Registration is closed";
         return false;
     }
     try {
-        auto ordered = s.ModuleOrder();
-        for (auto *m : ordered) {
-            for (auto &l : m->locations)
-                s.locations.emplace(String(l.id), String(l.title));
-            for (auto &d : m->editors)
-                if (d.imguiVersion.version != imguiVersion.version || d.imguiVersion.ioSize != imguiVersion.ioSize ||
-                    d.imguiVersion.styleSize != imguiVersion.styleSize ||
-                    d.imguiVersion.vertexSize != imguiVersion.vertexSize ||
-                    d.imguiVersion.indexSize != imguiVersion.indexSize)
-                    throw std::invalid_argument("ImGui editor version mismatch");
-            for (auto &d : m->views)
-                if (d.imguiVersion.version != imguiVersion.version || d.imguiVersion.ioSize != imguiVersion.ioSize ||
-                    d.imguiVersion.styleSize != imguiVersion.styleSize ||
-                    d.imguiVersion.vertexSize != imguiVersion.vertexSize ||
-                    d.imguiVersion.indexSize != imguiVersion.indexSize)
-                    throw std::invalid_argument("ImGui view version mismatch");
-            for (auto &d : m->toolbarItems)
-                if (d.draw &&
-                    (d.imguiVersion.version != imguiVersion.version || d.imguiVersion.ioSize != imguiVersion.ioSize ||
-                     d.imguiVersion.styleSize != imguiVersion.styleSize ||
-                     d.imguiVersion.vertexSize != imguiVersion.vertexSize ||
-                     d.imguiVersion.indexSize != imguiVersion.indexSize))
-                    throw std::invalid_argument("ImGui toolbar version mismatch");
-            for (auto &d : m->properties)
+        s.modules.PrepareActivation(imguiVersion);
+        for (const auto *module : s.modules.Active()) {
+            for (const auto &location : module->locations)
+                s.locations.emplace(String(location.id), String(location.title));
+            for (const auto &d : module->properties)
                 s.properties.emplace(String(d.id),
-                                     PropertyBinding{String(d.id), String(d.label), String(d.query), String(d.field),
-                                                     String(d.command), String(d.argument), String(d.editor), String(d.choices)});
+                    PropertyBinding{String(d.id), String(d.label), String(d.query), String(d.field),
+                                    String(d.command), String(d.argument), String(d.editor), String(d.choices)});
         }
-        s.activation = std::move(ordered);
         s.active = true;
         if (!Configure(configuration, error)) {
             s.active = false;
@@ -2345,7 +1559,7 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
             s.images.clear();
             s.themeValues.clear();
             s.bindingViews.clear();
-            s.activation.clear();
+            s.modules.ClearActivation();
             return false;
         }
         return true;
@@ -2360,14 +1574,14 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
         s.images.clear();
         s.themeValues.clear();
         s.bindingViews.clear();
-        s.activation.clear();
+        s.modules.ClearActivation();
         error = e.what();
         return false;
     }
 }
 bool EditorApplication::Configure(const EditorConfiguration &configuration, std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.modulesStopped || !s.drafts.empty() ||
+    if (!s.Thread() || !s.active || s.modules.Stopped() || !s.drafts.empty() ||
         std::any_of(s.pending.begin(), s.pending.end(), [](const auto &p) { return bool(p.preview); }) || s.drawing ||
         s.querying || s.executing || s.notifying ||
         std::any_of(s.toolStates.begin(), s.toolStates.end(),
@@ -2387,7 +1601,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         decltype(s.themeValues) themeValues;
         std::map<std::string, const EditorToolbarItemDesc *> toolbarDescriptors;
         auto choose = [&](auto member, auto &table, const char *kind) {
-            for (auto *m : s.activation)
+            for (auto *m : s.modules.Active())
                 for (auto &d : m->*member) {
                     const auto id = String(d.id);
                     auto choice = std::find_if(configuration.providers.begin(), configuration.providers.end(),
@@ -2433,7 +1647,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                 throw std::invalid_argument("Theme inheritance cycle: " + String(theme.id));
             if (theme.parent.size) {
                 const EditorThemeDesc *parent = nullptr;
-                for (const auto *module : s.activation)
+                for (const auto *module : s.modules.Active())
                     for (const auto &d : module->themes)
                         if (String(d.id) == String(theme.id) && String(d.provider) == String(theme.parent)) parent = &d;
                 if (!parent) throw std::invalid_argument("Missing parent theme provider: " + String(theme.parent));
@@ -2525,7 +1739,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         decltype(s.bindingPhases) bindingPhases;
         for (const auto &entry : commands)
             if (entry.second->view.size) bindingViews[entry.first] = String(entry.second->view);
-        for (auto *m : s.activation) {
+        for (auto *m : s.modules.Active()) {
             for (auto &d : m->tools)
                 if (auto chosen = commands.find(String(d.id));
                     chosen != commands.end() && String(chosen->second->provider) == String(d.provider)) {
@@ -2543,7 +1757,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                 (!tools.count(String(entry.second->defaultTool)) ||
                  String(tools.at(String(entry.second->defaultTool))->view) != entry.first))
                 throw std::invalid_argument("Unknown default view tool");
-        for (auto *m : s.activation) {
+        for (auto *m : s.modules.Active()) {
             for (auto &d : m->menus) {
                 if (!actionExists(String(d.action)) || !s.locations.count(String(d.location)))
                     throw std::invalid_argument("Unknown menu action or location");
@@ -2712,7 +1926,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         if (s.documentData != documentData) {
             if (s.document.value) throw std::invalid_argument("Close the composition before replacing document data providers");
             auto registry = std::make_shared<DocumentDataRegistry>(*DefaultDocumentDataRegistry());
-            for (auto *module : s.activation) for (const auto &desc : module->documentData)
+            for (auto *module : s.modules.Active()) for (const auto &desc : module->documentData)
                 if (documentData.count(String(desc.id)) && documentData.at(String(desc.id)) == &desc) {
                     if (!registry->Register(MakeDocumentDataType(desc, module->dataCallbacks), error))
                         throw std::invalid_argument(error);
@@ -2900,7 +2114,7 @@ const EditorResponse &EditorApplication::ReadQuery(std::string_view id, const Ed
     if (request.handler.size) {
         const auto handler = String(request.handler);
         query = nullptr;
-        for (auto &module : s.modules)
+        for (auto &module : s.modules.All())
             for (auto &candidate : module->queries)
                 if (String(candidate.id) == id && String(candidate.provider) == handler)
                     query = &candidate;
@@ -2995,7 +2209,7 @@ EditorStatus EditorApplication::CommandState(const std::string &id, const Editor
     if (request.handler.size) {
         command = nullptr;
         const auto handler = String(request.handler);
-        for (auto &module : s.modules)
+        for (auto &module : s.modules.All())
             for (auto &candidate : module->commands)
                 if (String(candidate.id) == id && String(candidate.provider) == handler)
                     command = &candidate;
@@ -3041,7 +2255,7 @@ EditorResponse EditorApplication::Execute(const std::string &id, const EditorReq
     if (request.handler.size) {
         const auto handler = String(request.handler);
         command = nullptr;
-        for (auto &module : s.modules)
+        for (auto &module : s.modules.All())
             for (auto &candidate : module->commands)
                 if (String(candidate.id) == id && String(candidate.provider) == handler)
                     command = &candidate;
@@ -3159,7 +2373,7 @@ EditorStatus EditorApplication::BeginCommand(const std::string &id, const Editor
     const auto *command = selected == s.commands.end() ? nullptr : selected->second;
     if (request.handler.size) {
         command = nullptr;
-        for (const auto &module : s.modules)
+        for (const auto &module : s.modules.All())
             for (const auto &candidate : module->commands)
                 if (String(candidate.id) == id && String(candidate.provider) == String(request.handler))
                     command = &candidate;
@@ -3361,7 +2575,7 @@ EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorR
     const EditorCommandDesc *command = selected == s.commands.end() ? nullptr : selected->second;
     if (request.handler.size) {
         command = nullptr;
-        for (const auto &module : s.modules) for (const auto &candidate : module->commands)
+        for (const auto &module : s.modules.All()) for (const auto &candidate : module->commands)
             if (String(candidate.id) == id && String(candidate.provider) == String(request.handler)) command = &candidate;
     }
     if (!command || command->effect != EDITOR_DOCUMENT_EDIT) return result;
@@ -3511,7 +2725,7 @@ const std::vector<MenuEntry> &EditorApplication::Menus() const { return m_State-
 std::vector<EditorCommandDesc> EditorApplication::Commands(bool all) const {
     std::vector<EditorCommandDesc> result;
     if (all) {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &d : module->commands) result.push_back(d);
     } else
         for (const auto &entry : m_State->commands) result.push_back(*entry.second);
@@ -3520,7 +2734,7 @@ std::vector<EditorCommandDesc> EditorApplication::Commands(bool all) const {
 std::vector<EditorToolDesc> EditorApplication::Tools(bool all) const {
     std::vector<EditorToolDesc> result;
     if (all) {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &d : module->tools) result.push_back(d);
     } else
         for (const auto &entry : m_State->tools) result.push_back(*entry.second);
@@ -3528,7 +2742,7 @@ std::vector<EditorToolDesc> EditorApplication::Tools(bool all) const {
 }
 std::vector<EditorToolbarItemDesc> EditorApplication::ToolbarProviders() const {
     std::vector<EditorToolbarItemDesc> result;
-    for (const auto &module : m_State->modules)
+    for (const auto &module : m_State->modules.All())
         for (const auto &d : module->toolbarItems) result.push_back(d);
     return result;
 }
@@ -3536,7 +2750,7 @@ std::vector<EditorThemeDesc> EditorApplication::Themes(bool all) const {
     std::vector<EditorThemeDesc> result;
     if (!m_State->Thread()) return result;
     if (all) {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &desc : module->themes) result.push_back(desc);
     } else
         for (const auto &entry : m_State->themes) result.push_back(*entry.second);
@@ -3546,7 +2760,7 @@ std::vector<EditorFontDesc> EditorApplication::Fonts(bool all) const {
     std::vector<EditorFontDesc> result;
     if (!m_State->Thread()) return result;
     if (all) {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &desc : module->fonts) result.push_back(desc);
     } else
         for (const auto &entry : m_State->fonts) result.push_back(*entry.second);
@@ -3556,7 +2770,7 @@ std::vector<EditorImageDesc> EditorApplication::Images(bool all) const {
     std::vector<EditorImageDesc> result;
     if (!m_State->Thread()) return result;
     if (all) {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &desc : module->images) result.push_back(desc);
     } else
         for (const auto &entry : m_State->images) result.push_back(*entry.second);
@@ -3790,7 +3004,7 @@ bool EditorApplication::IsCommand(const std::string &action) const { return m_St
 std::vector<EditorViewDesc> EditorApplication::Views(bool allProviders) const {
     std::vector<EditorViewDesc> result;
     if (allProviders) {
-        for (const auto &module : m_State->modules)
+        for (const auto &module : m_State->modules.All())
             for (const auto &view : module->views) result.push_back(view);
         return result;
     }
@@ -3800,7 +3014,7 @@ std::vector<EditorViewDesc> EditorApplication::Views(bool allProviders) const {
 }
 std::vector<EditorValueEditorDesc> EditorApplication::ValueEditors() const {
     std::vector<EditorValueEditorDesc> result;
-    for (auto &m : m_State->modules)
+    for (auto &m : m_State->modules.All())
         for (auto &e : m->editors)
             result.push_back(e);
     return result;
@@ -3891,85 +3105,38 @@ void EditorApplication::EndFrame() {
 }
 bool EditorApplication::StartModules(std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.stopped || s.modulesStopped || s.moduleCallback || s.drawing || s.querying || s.executing || s.notifying) {
+    if (!s.Thread() || !s.active || s.stopped || s.modules.Stopped() || s.modules.Busy() || s.drawing || s.querying || s.executing || s.notifying) {
         error = "Modules cannot start during another callback";
         return false;
     }
-    if (s.modulesStarted) return true;
-    s.moduleCallback = true;
     ++s.readOnlyCallbacks;
     ++s.executing;
-    bool started = true;
-    for (auto *module : s.activation) {
-        module->running = true;
-        if (!module->start) continue;
-        EditorStatus status = EDITOR_ERROR;
-        std::string message;
-        try { status = module->start(module->data, Host()); }
-        catch (const std::exception &failure) { message = failure.what(); }
-        catch (...) { message = "Startup raised an exception"; }
-        if (status == EDITOR_OK || status == EDITOR_NO_CHANGE) continue;
-        error = "Module start failed: " + String(module->id);
-        if (!message.empty()) error += ": " + message;
-        started = false;
-        break;
-    }
+    const bool started = s.modules.Start(Host(), error);
     --s.executing;
     --s.readOnlyCallbacks;
-    s.moduleCallback = false;
-    if (!started) { Stop(); return false; }
-    s.modulesStarted = true;
-    return true;
+    if (!started) Stop();
+    return started;
 }
 bool EditorApplication::UpdateModules(EditorModulePhase phase) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || !s.modulesStarted || s.moduleCallback || s.drawing || s.querying || s.executing ||
-        s.notifying || (phase != EDITOR_PREPARE_FRAME && phase != EDITOR_BEFORE_VIEWS && phase != EDITOR_AFTER_VIEWS))
-        return false;
-    s.moduleCallback = true;
+    if (!s.Thread() || !s.active || s.drawing || s.querying || s.executing || s.notifying) return false;
     ++s.executing;
-    bool updated = true;
-    for (auto *module : s.activation) {
-        if (!module->update) continue;
-        try { module->update(module->data, Host(), phase); }
-        catch (...) {
-            updated = false;
-            if (report) {
-                try { report({EDITOR_ERROR, "Module update failed: " + String(module->id)}); } catch (...) {}
-            }
-        }
-    }
+    const bool updated = s.modules.Update(Host(), phase, report);
     --s.executing;
-    s.moduleCallback = false;
     return updated;
 }
 void EditorApplication::StopModules() {
     auto &s = *m_State;
-    if (!s.Thread() || s.modulesStopped || s.moduleCallback || s.assembling || s.loading || s.discarding) return;
-    s.moduleCallback = true;
-    s.modulesStopped = true;
+    if (!s.Thread() || s.modules.Busy()) return;
     ++s.executing;
-    s.modulesStarted = false;
-    for (auto it = s.activation.rbegin(); it != s.activation.rend(); ++it) {
-        auto &module = **it;
-        if (!module.running) continue;
-        module.running = false;
-        if (!module.stop) continue;
-        try { module.stop(module.data, Host()); }
-        catch (...) {
-            if (report) {
-                try { report({EDITOR_ERROR, "Module stop failed: " + String(module.id)}); } catch (...) {}
-            }
-        }
-    }
+    s.modules.Stop(Host(), report);
     --s.executing;
-    s.moduleCallback = false;
 }
 void EditorApplication::Stop() {
     if (!m_State)
         return;
     auto &s = *m_State;
-    if (!s.Thread() || s.assembling || s.loading || s.discarding || s.moduleCallback)
+    if (!s.Thread() || s.modules.Busy())
         return;
     StopModules();
     for (const auto &entry : s.toolStates) {
@@ -3981,14 +3148,13 @@ void EditorApplication::Stop() {
     }
     s.toolStates.clear();
     s.active = false;
-    s.modulesStarted = false;
     s.stopped = true;
     s.watches.clear();
     s.ClearDrafts();
     s.pending.clear();
     s.scopes.clear();
     s.cache.clear();
-    s.DiscardModules(0);
+    s.modules.Clear();
     s.commands.clear();
     s.queries.clear();
     s.editors.clear();
@@ -4005,7 +3171,5 @@ void EditorApplication::Stop() {
     s.dataTypes = DefaultDocumentDataRegistry();
     s.themeValues.clear();
     s.bindingViews.clear();
-    s.activation.clear();
-    s.modules.clear();
 }
 } // namespace vdev
