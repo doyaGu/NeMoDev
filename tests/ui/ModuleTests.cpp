@@ -27,6 +27,42 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
+    auto *externalLifecycle = IM_REGISTER_TEST(engine, "modulelifecycle", "external_module_uses_all_frame_phases");
+    externalLifecycle->GuiFunc = MainThreadGui;
+    externalLifecycle->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        const auto phases = Read<std::vector<uint64_t>>(ctx, [] {
+            const auto result = EditorCommands().Query("test.lifecycle");
+            std::vector<uint64_t> values;
+            if (result.status == EDITOR_OK)
+                for (const auto &field : result.fields) values.push_back(field.integer);
+            return values;
+        });
+        IM_CHECK_EQ(phases.size(), 5);
+        IM_CHECK_EQ(phases[0], 1);
+        IM_CHECK(phases[1] > 0 && phases[2] > 0 && phases[3] > 0 && !phases[4]);
+    };
+    auto *disabledExternal = IM_REGISTER_TEST(engine, "modulelifecycle", "disabled_external_module_does_not_run");
+    disabledExternal->GuiFunc = MainThreadGui;
+    disabledExternal->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        IM_CHECK(Read<bool>(ctx, [] { return EditorCommands().Query("test.lifecycle").status != EDITOR_OK; }));
+        ctx->Yield(10);
+    };
+    auto *disabled = IM_REGISTER_TEST(engine, "modulelifecycle", "disabled_execution_does_not_bind_debugger");
+    disabled->GuiFunc = MainThreadGui;
+    disabled->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().HasDocument(); }));
+        IM_CHECK(Read<bool>(ctx, [] {
+            for (const auto &module : App().WorkspaceForTests().Application().Modules())
+                if (module.id == "runtime.execution") return !module.enabled;
+            return false;
+        }));
+        IM_CHECK(Read<bool>(ctx, [] { return App().DebuggerForTests() == nullptr; }));
+        ctx->Yield(10);
+        IM_CHECK(Read<bool>(ctx, [] { return App().DebuggerForTests() == nullptr; }));
+    };
     auto *workspaceState = IM_REGISTER_TEST(engine, "workspaces", "workspace_startup_state");
     workspaceState->GuiFunc = MainThreadGui;
     workspaceState->TestFunc = [](ImGuiTestContext *ctx) {

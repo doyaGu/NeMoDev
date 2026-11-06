@@ -1498,7 +1498,8 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.debugger",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.ModuleLifecycle.DisabledExecution"
       ],
       "gaps": []
     },
@@ -1959,13 +1960,34 @@
         "NeMoDevModuleDiscovery",
         "NeMoDevModuleBuild",
         "NeMoDevProfile",
-        "NeMoDevWorkspaceClose.ExternalProvider"
+        "NeMoDevWorkspaceClose.ExternalProvider",
+        "NeMoDevModuleLifecycle.Order",
+        "NeMoDevModuleLifecycle.Disabled",
+        "NeMoDevModuleLifecycle.StartRefusal",
+        "NeMoDevModuleLifecycle.StartException",
+        "NeMoDevModuleLifecycle.UpdateException",
+        "NeMoDevModuleLifecycle.ReentrantCalls",
+        "NeMoDevModuleLifecycle.ThreadChecks",
+        "NeMoDevModuleLifecycle.StopException",
+        "NeMoDevModuleLifecycle.StableAllocations",
+        "NeMoDevModuleLifecycle.StopBeforeRelease",
+        "NeMoDevModuleLifecycle.UnstartedRelease",
+        "NeMoDevModuleLifecycle.UpdateOnly",
+        "NeMoDevModuleLifecycle.OptionalPresent",
+        "NeMoDevModuleLifecycle.OptionalAbsent",
+        "NeMoDevModuleLifecycle.OptionalCycle",
+        "NeMoDevModuleLifecycle.BorrowedControllerLifetime"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
         "VirtoolsDevUi.moduleStartup",
         "VirtoolsDevUi.profileStartup",
-        "VirtoolsDevUi.workspaceStartup"
+        "VirtoolsDevUi.workspaceStartup",
+        "VirtoolsDevUi.ModuleLifecycle.DisabledExecution",
+        "VirtoolsDevUi.ModuleLifecycle.ExternalModule",
+        "VirtoolsDevUi.ModuleLifecycle.DisabledExternal",
+        "VirtoolsDevUi.ModuleLifecycle.StartRefusal",
+        "VirtoolsDevUi.ModuleLifecycle.StartException"
       ],
       "gaps": [
         {
@@ -2276,9 +2298,9 @@
     },
     {
       "id": "editor-modules",
-      "name": "模块及命令、查询、属性、编辑器、视图和文档数据类型登记",
-      "owner": "EditorApplication",
-      "lifetime": "启动统一收集、校验、启用；本批失败清理后可重试；全部使用者关闭后逆依赖停止并卸载，不热卸载",
+      "name": "模块登记、依赖顺序、启动、分阶段推进、停止活动与数据释放",
+      "owner": "EditorApplication 持有模块登记、依赖排序及运行阶段；各模块拥有自己的活动和分配，EditorApp 只负责核心运行时与装配",
+      "lifetime": "统一装配与校验后按依赖启动；装配失败清理后可重试，启动失败停止整批；菜单前、视图前和视图后分阶段推进；退出先保存并逆依赖停止活动，关闭视图后释放入口分配，再卸载模块，最后关闭文档和运行时；不热卸载",
       "persistence": "安装、用户、显式目录和文件只在启动发现；EditorProfile 保存稳定模块 ID、启用状态和可选来源，内置与外部按同一选择装配；禁用或替换下次启动生效，不热卸载；明确禁用的外部路径在调用入口前跳过",
       "features": [
         "F31"

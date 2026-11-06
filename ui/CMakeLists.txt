@@ -362,6 +362,24 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    add_executable(NeMoDevModuleLifecycleTests ../tests/ModuleLifecycleTests.cpp)
+    nemodev_add_module(NeMoDevLifecycleModule SOURCES ../tests/modules/LifecycleModule.cpp)
+    target_link_libraries(NeMoDevModuleLifecycleTests PRIVATE NeMoDevEditorApplication NeMoDevObjectCommands VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
+    foreach(_case Order Disabled StartRefusal StartException UpdateException ReentrantCalls ThreadChecks StopException StableAllocations
+            StopBeforeRelease UnstartedRelease UpdateOnly OptionalPresent OptionalAbsent OptionalCycle BorrowedControllerLifetime)
+        add_test(NAME NeMoDevModuleLifecycle.${_case} COMMAND NeMoDevModuleLifecycleTests ${_case})
+        set_tests_properties(NeMoDevModuleLifecycle.${_case} PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    endforeach()
+    if(TARGET VirtoolsDevUiTests)
+        add_dependencies(VirtoolsDevUiTests NeMoDevLifecycleModule)
+        foreach(_case DisabledExecution ExternalModule DisabledExternal StartRefusal StartException)
+            add_test(NAME VirtoolsDevUi.ModuleLifecycle.${_case} COMMAND ${Python3_EXECUTABLE}
+                    "${VIRTOOLSDEV_SOURCE_DIR}/tests/ModuleLifecycleStartupTests.py"
+                    --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevLifecycleModule>"
+                    --case ${_case} --results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/module-lifecycle")
+            set_tests_properties(VirtoolsDevUi.ModuleLifecycle.${_case} PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 90)
+        endforeach()
+    endif()
     add_executable(NeMoDevWorkspaceCloseTests ../tests/WorkspaceCloseTests.cpp)
     target_link_libraries(NeMoDevWorkspaceCloseTests PRIVATE VirtoolsDevWorkspace NeMoDevEditorApplication
             VirtoolsDevCore "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
