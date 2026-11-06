@@ -12,7 +12,7 @@ class Preferences;
 class LayoutPresentation {
   public:
     LayoutPresentation(EditorApplication &, std::function<Document *()>, LayoutTargetLookup, ObjectSelection &,
-                       const Preferences &, std::function<bool()> running);
+                       const Preferences &, std::function<bool()> running, LayoutTargetVisitor targets = {});
     ~LayoutPresentation();
     bool Register(std::string &error);
     void Poll(EditorView source = 0);
@@ -21,5 +21,6 @@ class LayoutPresentation {
   private:
     struct Data;
     std::unique_ptr<Data> m_Data;
+    LayoutTargetVisitor m_Targets;
 };
 } // namespace vdev

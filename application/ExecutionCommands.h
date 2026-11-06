@@ -7,6 +7,7 @@
 namespace vdev {
 class Document;
 class Debugger;
+class DocumentFiles;
 class Preferences;
 
 // Owns execution for the editing document. Native work remains on the current
@@ -23,7 +24,7 @@ class ExecutionCommands {
         uint64_t logEntries = 0, logRevision = 0, reachedBreakpoints = 0, faults = 0;
     };
     ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                      std::function<bool()> nativeAvailable, Preferences &preferences);
+                      std::function<bool()> nativeAvailable, Preferences &preferences, DocumentFiles *files = nullptr);
     ~ExecutionCommands();
     bool Register(std::string &error);
     // Application assembly/lifecycle only. The remaining native breakpoint
@@ -38,9 +39,12 @@ class ExecutionCommands {
     // Returns whether runtime changes require the Schematic values to refresh.
     bool Update(double budget);
     const StateData &State() const;
+    const Debugger *BoundDebugger() const;
+    std::function<void()> changed;
 
   private:
     struct Data;
     std::unique_ptr<Data> m_Data;
+    DocumentFiles *m_Files;
 };
 } // namespace vdev

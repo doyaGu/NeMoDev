@@ -13,7 +13,7 @@ struct LayoutRestoreData;
 // The rendering target remains owned by LayoutView and its UI renderer.
 class LayoutCommands {
 public:
-  LayoutCommands(EditorApplication &, std::function<Document *()>, LayoutTargetLookup, ObjectSelection &);
+  LayoutCommands(EditorApplication &, std::function<Document *()>, LayoutTargetLookup, ObjectSelection &, LayoutTargetVisitor targets = {});
   ~LayoutCommands();
   bool Register(std::string &error);
   void Poll(EditorView source = 0);
@@ -23,5 +23,6 @@ public:
 private:
     struct Data;
     std::unique_ptr<Data> m_Data;
+    LayoutTargetVisitor m_Targets;
 };
 } // namespace vdev

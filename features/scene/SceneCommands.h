@@ -11,7 +11,8 @@ namespace vdev {
 class SceneCommands {
   public:
     SceneCommands(EditorApplication &, std::function<Document *()>, ObjectClipboard &, Clipboard &,
-                  std::function<SchematicNavigation &()> navigation, std::function<CKDependencies &()> copyOptions);
+                  std::function<SchematicNavigation &()> navigation, std::function<CKDependencies &()> copyOptions,
+                  std::function<bool()> showDynamic = {});
     ~SceneCommands();
     bool Register(std::string &error);
     // Only published editor-thread values are used by version callbacks.
@@ -22,5 +23,7 @@ class SceneCommands {
   private:
     struct Data;
     std::unique_ptr<Data> m_Data;
+    std::function<bool()> m_ShowDynamic;
+    void Poll();
 };
 } // namespace vdev

@@ -500,6 +500,11 @@ bool OutputCommands::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("documents.outputs");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<OutputCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<OutputCommands *>(data)->Stop(); };
     module.commands = commands;
     module.commandCount = 4;
     module.queries = queries;

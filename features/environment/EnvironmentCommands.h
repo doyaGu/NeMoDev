@@ -18,7 +18,7 @@ class EnvironmentCommands {
     };
     using SavePaths = std::function<bool(const PathCategories &, std::string &)>;
     EnvironmentCommands(EditorApplication &, CkRuntimeHost &, std::function<bool()> nativeAvailable, SavePaths = {},
-                        std::function<void()> pluginsChanged = {});
+                        std::function<void()> pluginsChanged = {}, const PathCategories *initialPaths = nullptr);
     ~EnvironmentCommands();
     bool Register(std::string &error);
     bool InitializePaths(const PathCategories &, std::string &error);
@@ -29,5 +29,6 @@ class EnvironmentCommands {
   private:
     struct Data;
     std::unique_ptr<Data> m_Data;
+    const PathCategories *m_InitialPaths;
 };
 } // namespace vdev

@@ -569,6 +569,11 @@ bool LayoutAuthoring::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("layout.authoring");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<LayoutAuthoring *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<LayoutAuthoring *>(data)->DocumentClosing(); };
     module.commands = commands;
     module.commandCount = 4;
     module.queries = queries;

@@ -28,4 +28,5 @@ struct LayoutTarget {
     LayoutViewport *viewport = nullptr;
 };
 using LayoutTargetLookup = std::function<LayoutTarget(EditorView)>;
+using LayoutTargetVisitor = std::function<void(const std::function<void(LayoutTarget)> &)>;
 } // namespace vdev

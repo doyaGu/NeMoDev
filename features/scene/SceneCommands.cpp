@@ -218,10 +218,24 @@ struct SceneCommands::Data {
     }
 };
 SceneCommands::SceneCommands(EditorApplication &editor, std::function<Document *()> current, ObjectClipboard &objects,
-                             Clipboard &clipboard, std::function<SchematicNavigation &()> navigation, std::function<CKDependencies &()> options)
-    : m_Data(new Data{editor, std::move(current), objects, clipboard, std::move(navigation), std::move(options)}) {
+                             Clipboard &clipboard, std::function<SchematicNavigation &()> navigation, std::function<CKDependencies &()> options,
+                             std::function<bool()> showDynamic)
+    : m_Data(new Data{editor, std::move(current), objects, clipboard, std::move(navigation), std::move(options)}), m_ShowDynamic(std::move(showDynamic)) {
 }
 SceneCommands::~SceneCommands() = default;
+void SceneCommands::Poll() {
+    auto &editor = m_Data->editor;
+    if (!editor.NativeAvailable()) return;
+    static const std::string stateQuery = "runtime.state";
+    const auto &state = editor.ReadQuery(stateQuery, {editor.Scope()});
+    int frames = 0, running = 0;
+    if (state.status == EDITOR_OK)
+        for (const auto &field : state.fields) {
+            if (field.key == "frames") frames = int(field.integer);
+            if (field.key == "state") running = int(field.integer);
+        }
+    Publish(editor.Revision(), frames, running, m_ShowDynamic && m_ShowDynamic());
+}
 void SceneCommands::Publish(uint64_t published, int frame, int state, bool dynamic) {
     auto &d = *m_Data;
     auto *doc = d.current();
@@ -1539,6 +1553,11 @@ bool SceneCommands::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("scene.editing");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_BEFORE_VIEWS) static_cast<SceneCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<SceneCommands *>(data)->Stop(); };
     module.commands = commands.data();
     module.commandCount = uint32_t(commands.size());
     module.queries = queries;

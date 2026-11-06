@@ -1135,6 +1135,11 @@ bool DocumentCommands::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EditorLiteral("documents.operations");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<DocumentCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<DocumentCommands *>(data)->Stop(); };
     module.commands = commands.data();
     module.commandCount = uint32_t(commands.size());
     module.queries = queries;

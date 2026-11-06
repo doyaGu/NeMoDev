@@ -312,8 +312,8 @@ struct LayoutCommands::Data {
     }
 };
 LayoutCommands::LayoutCommands(EditorApplication &editor, std::function<Document *()> current, LayoutTargetLookup view,
-                               ObjectSelection &selection)
-    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(view), selection)) {}
+                               ObjectSelection &selection, LayoutTargetVisitor targets)
+    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(view), selection)), m_Targets(std::move(targets)) {}
 LayoutCommands::~LayoutCommands() = default;
 void LayoutCommands::Poll(EditorView source) {
     if (!m_Data->editor.NativeAvailable() || m_Data->editor.HasEdits()) return;
@@ -392,6 +392,13 @@ bool LayoutCommands::Register(std::string &error) {
         command.view = EDITOR_TEXT("layout.viewport");
     }
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("layout.scene");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase != EDITOR_PREPARE_FRAME) return;
+        auto &self = *static_cast<LayoutCommands *>(data);
+        if (self.m_Targets) self.m_Targets([&self](LayoutTarget target) { self.Poll(target.id); });
+        else self.Poll();
+    };
     module.commands = commands; module.commandCount = 7; module.queries = &query; module.queryCount = 1;
     return m_Data->editor.Register(module, error) && m_Data->gestures.Register(m_Data->editor, error);
 }

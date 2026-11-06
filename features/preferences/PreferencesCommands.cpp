@@ -331,6 +331,18 @@ bool PreferencesCommands::Register(std::string &error) {
             }, &self, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, &checked, 1}};
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("preferences.settings"); module.commands = commands; module.commandCount = uint32_t(std::size(commands));
+    module.data = this;
+    module.start = [](void *data, const EditorHost *) {
+        auto &self = *static_cast<PreferencesCommands *>(data);
+        std::string error;
+        if (!self.ApplyRuntimeSettings(error) && self.m_Data->editor.report)
+            self.m_Data->editor.report({EDITOR_ERROR, error});
+        return EDITOR_OK;
+    };
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<PreferencesCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<PreferencesCommands *>(data)->Stop(); };
     module.queries = queries; module.queryCount = uint32_t(std::size(queries));
     return self.editor.Register(module, error);
 }

@@ -592,6 +592,11 @@ bool SnapshotCommands::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("layout.snapshots");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<SnapshotCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<SnapshotCommands *>(data)->Stop(); };
     module.commands = commands;
     module.commandCount = uint32_t(std::size(commands));
     module.queries = queries;

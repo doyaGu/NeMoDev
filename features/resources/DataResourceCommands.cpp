@@ -599,6 +599,13 @@ bool DataResourceCommands::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("resources.libraries");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<DataResourceCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<DataResourceCommands *>(data)->Stop(); };
+    static const EditorString environment = EDITOR_TEXT("environment.settings");
+    module.optionalDependencies = &environment; module.optionalDependencyCount = 1;
     module.commands = commands.data();
     module.commandCount = uint32_t(commands.size());
     module.queries = queries.data();

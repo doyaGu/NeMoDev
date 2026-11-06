@@ -411,8 +411,9 @@ struct LayoutPresentation::Data {
 };
 LayoutPresentation::LayoutPresentation(EditorApplication &editor, std::function<Document *()> current,
                                        LayoutTargetLookup view, ObjectSelection &selection,
-                                       const Preferences &preferences, std::function<bool()> running)
-    : m_Data(new Data{editor, std::move(current), std::move(view), selection, preferences, std::move(running)}) {}
+                                       const Preferences &preferences, std::function<bool()> running, LayoutTargetVisitor targets)
+    : m_Data(new Data{editor, std::move(current), std::move(view), selection, preferences, std::move(running)}),
+      m_Targets(std::move(targets)) {}
 LayoutPresentation::~LayoutPresentation() = default;
 void LayoutPresentation::Poll(EditorView source) {
     if (!m_Data->editor.NativeAvailable())
@@ -474,6 +475,13 @@ bool LayoutPresentation::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("layout.presentation");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase != EDITOR_BEFORE_VIEWS) return;
+        auto &self = *static_cast<LayoutPresentation *>(data);
+        if (self.m_Targets) self.m_Targets([&self](LayoutTarget target) { self.Poll(target.id); });
+        else self.Poll();
+    };
     module.commands = commands;
     module.commandCount = 2;
     module.queries = queries;

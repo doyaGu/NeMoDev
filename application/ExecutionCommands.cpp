@@ -1,4 +1,5 @@
 #include "application/ExecutionCommands.h"
+#include "application/DocumentFiles.h"
 #include "application/Preferences.h"
 #include "core/document/Document.h"
 #include "core/graph/Debugger.h"
@@ -541,8 +542,8 @@ struct ExecutionCommands::Data {
 };
 
 ExecutionCommands::ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                                     std::function<bool()> nativeAvailable, Preferences &preferences)
-    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), preferences)) {}
+                                     std::function<bool()> nativeAvailable, Preferences &preferences, DocumentFiles *files)
+    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), preferences)), m_Files(files) {}
 ExecutionCommands::~ExecutionCommands() { Stop(); }
 const Debugger *ExecutionCommands::Bind(Document &document) {
     if (m_Data->document) m_Data->RestoreProfiling();
@@ -571,6 +572,7 @@ void ExecutionCommands::ReleaseDocument() {
 }
 void ExecutionCommands::Synchronize() { m_Data->Synchronize(); }
 void ExecutionCommands::Stop() {
+    if (m_Files) m_Files->Execution(nullptr);
     m_Data->RestoreProfiling();
     if (m_Data->debugger) m_Data->debugger->Detach();
     m_Data->debugger.reset(); m_Data->document = nullptr;
@@ -579,6 +581,7 @@ void ExecutionCommands::Stop() {
     m_Data->ClearPublished();
 }
 const ExecutionCommands::StateData &ExecutionCommands::State() const { return m_Data->state; }
+const Debugger *ExecutionCommands::BoundDebugger() const { return m_Data->debugger.get(); }
 bool ExecutionCommands::Update(double budget) {
     auto &d = *m_Data;
     d.Synchronize();
@@ -712,6 +715,34 @@ bool ExecutionCommands::Register(std::string &error) {
     }
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("runtime.execution");
+    module.data = this;
+    module.start = [](void *data, const EditorHost *) {
+        auto &self = *static_cast<ExecutionCommands *>(data);
+        auto *document = self.m_Data->current();
+        if (!document) return EDITOR_ERROR;
+        self.Bind(*document);
+        auto &debugger = *self.m_Data->debugger;
+        const auto &preferences = self.m_Data->preferences;
+        debugger.reengageBehavior = preferences.behaviorBreakpointReengage;
+        debugger.reengageLink = preferences.linkBreakpointReengage;
+        debugger.reengageParameter = preferences.parameterBreakpointReengage;
+        debugger.redrawOnlyAtBreakpoint = preferences.redrawOnlyAtBreakpoint;
+        self.m_Data->Publish(true);
+        if (self.m_Files) self.m_Files->Execution(&self);
+        return EDITOR_OK;
+    };
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        auto &self = *static_cast<ExecutionCommands *>(data);
+        if (phase == EDITOR_PREPARE_FRAME) {
+            auto &state = *self.m_Data;
+            const auto document = state.editor.Scope().document;
+            if ((!document.value && (state.state.document.value || state.profileDocument.value)) ||
+                (state.Ready() && (document != state.state.document || state.synchronizeAfterRelease)))
+                self.Synchronize();
+        }
+        else if (phase == EDITOR_AFTER_VIEWS && self.Update(0.010) && self.changed) self.changed();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<ExecutionCommands *>(data)->Stop(); };
     module.commands = commands.data(); module.commandCount = uint32_t(commands.size());
     module.queries = queries; module.queryCount = uint32_t(std::size(queries));
     module.bindings = bindings.data(); module.bindingCount = uint32_t(bindings.size());

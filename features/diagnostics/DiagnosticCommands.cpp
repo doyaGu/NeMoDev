@@ -306,6 +306,11 @@ bool DiagnosticCommands::Register(std::string &error) {
         &self, EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, infoFields, 5,
         [](void *, const EditorHost *) -> uint64_t { return 1; }});
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("diagnostics.checks");
+    module.data = this;
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<DiagnosticCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<DiagnosticCommands *>(data)->Stop(); };
     const EditorString dependency = EDITOR_TEXT("schematic.editing"); module.dependencies = &dependency; module.dependencyCount = 1;
     module.commands = commands.data(); module.commandCount = uint32_t(commands.size()); module.queries = queries.data(); module.queryCount = uint32_t(queries.size());
     return self.editor.Register(module, error);

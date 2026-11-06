@@ -356,8 +356,8 @@ struct EnvironmentCommands::Data {
     }
 };
 EnvironmentCommands::EnvironmentCommands(EditorApplication &editor, CkRuntimeHost &runtime, std::function<bool()> available, SavePaths save,
-                                         std::function<void()> changed)
-    : m_Data(std::make_unique<Data>(editor, runtime, std::move(available), std::move(save), std::move(changed))) {}
+                                         std::function<void()> changed, const PathCategories *initialPaths)
+    : m_Data(std::make_unique<Data>(editor, runtime, std::move(available), std::move(save), std::move(changed))), m_InitialPaths(initialPaths) {}
 EnvironmentCommands::~EnvironmentCommands() = default;
 void EnvironmentCommands::ConfigureLinks(std::function<LinkOptions()> read,
     std::function<bool(const LinkOptions &, std::string &)> save) {
@@ -458,6 +458,18 @@ bool EnvironmentCommands::Register(std::string &error) {
             }, &self, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, folderFields, 3}};
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("environment.settings");
+    module.data = this;
+    module.start = [](void *data, const EditorHost *) {
+        auto &self = *static_cast<EnvironmentCommands *>(data);
+        std::string error;
+        if (self.m_InitialPaths && !self.InitializePaths(*self.m_InitialPaths, error) && self.m_Data->editor.report)
+            self.m_Data->editor.report({EDITOR_ERROR, error});
+        return EDITOR_OK;
+    };
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_PREPARE_FRAME) static_cast<EnvironmentCommands *>(data)->Poll();
+    };
+    module.stop = [](void *data, const EditorHost *) { static_cast<EnvironmentCommands *>(data)->Stop(); };
     module.commands = commands.data(); module.commandCount = uint32_t(commands.size());
     module.queries = queries; module.queryCount = uint32_t(std::size(queries));
     return self.editor.Register(module, error);
