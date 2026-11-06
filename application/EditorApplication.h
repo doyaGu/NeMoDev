@@ -244,6 +244,7 @@ class EditorApplication {
   private:
     struct CachedQuery;
     class QueryState;
+    class EditDrafts;
     const EditorResponse &ReadQuery(std::string_view, const EditorRequest &,
                                     std::shared_ptr<const CachedQuery> *retained);
     EditorStatus DeliverQuery(std::string_view, const EditorRequest &, EditorSink);
