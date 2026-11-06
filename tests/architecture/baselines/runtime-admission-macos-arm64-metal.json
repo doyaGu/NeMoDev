@@ -1,0 +1,316 @@
+{
+  "description": "统一原生任务准入及等待输入的流程归属，移除各功能重复注入的忙碌判断。",
+  "base_revision": "ed4ea59740cf4c70915f0b7907a77d7309303850",
+  "recorded_utc": "2026-11-06T06:11:00.336302+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "module_interface": {
+    "version": 26,
+    "public_c_header_unchanged": true,
+    "sdk_unchanged": true
+  },
+  "owners": {
+    "RuntimeOperation": "运行时可用性、主线程检查、编辑及手势准入、任务队列、等待输入的流程归属、提交来源和文档作用域。",
+    "DocumentCommands": "文件流程参数、输入和结果；持有该流程的任务请求。",
+    "OutputCommands": "网页、打印参数和结果；持有该流程的任务请求。",
+    "DataResourceCommands": "资源输入参数和文件系统扫描；仅等待输入的原生流程持有任务请求，目录扫描保持独立。",
+    "EditorApplication": "向内置和外部命令提供统一的原生可用性；不再逐项拼接文件、输出和资源的忙碌状态。"
+  },
+  "changes": [
+    "Busy 只表示排队或执行；Available 同时检查原生运行时和流程占用；CanQueue 增加既有编辑与手势检查。",
+    "排队时及启动前检查准入，绘制期间打开的编辑不会被已提升的任务跳过；忙碌时不调用访问文档的检查函数。",
+    "错误线程及检查函数重入拒绝操作；检查抛异常转为一次失败完成，未启动任务不会执行。",
+    "工作完成与延后输入继续使用原提交来源；过期来源不能进入新流程。",
+    "取消、失败、文档失效及完成先释放流程请求，再通知界面；文档、选区和 Undo/Redo 保持不变。",
+    "执行、诊断、插件路径和偏好不再各自接收相同的可用性回调；删除 EditorApp 的组合忙碌判断。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-runtime-admission/build-final.log",
+      "sha256": "eee996fbe5209bb4fb7726e545bd7648956b5ec9d4962a953bb93e4460082ffd"
+    },
+    "complete_run": {
+      "total": 281,
+      "passed": 281,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-runtime-admission/full.xml",
+        "sha256": "9f1ea10b2f09da5e13a3a8fd1cd4bd31d084ebb501ea3e626d019a3696ecf711"
+      },
+      "log": {
+        "path": "out/phase-six-runtime-admission/full.log",
+        "sha256": "b8e5e9e9ea3a4130fcedc421aa24d576553f91b7e37eb788240bc00a1a8a300a"
+      },
+      "inventory": {
+        "path": "out/phase-six-runtime-admission/full-inventory.json",
+        "sha256": "fcbd0cae5e53686cccc40271dde50917305fda313b8b94577f6ccbdc0f69b212"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-runtime-admission/full-check.log",
+        "sha256": "c3cef875ae4512c2a6897e17c0bd941fb13b9378660108779ef8855cc0b92bfd"
+      }
+    },
+    "independent_admission_cases": [
+      "NeMoDevRuntimeAdmission.DispatchRecheck",
+      "NeMoDevRuntimeAdmission.BusyCheck",
+      "NeMoDevRuntimeAdmission.WrongThread",
+      "NeMoDevRuntimeAdmission.AdmissionException",
+      "NeMoDevRuntimeAdmission.WorkflowIsolation",
+      "NeMoDevRuntimeAdmission.RequestCancellation",
+      "NeMoDevRuntimeAdmission.ScopedSubmission",
+      "NeMoDevRuntimeAdmission.ContinuationOwnership",
+      "NeMoDevRuntimeAdmission.CompletionStartsWorkflow",
+      "NeMoDevRuntimeAdmission.DocumentContinuation",
+      "NeMoDevRuntimeAdmission.AdmissionReentry",
+      "NeMoDevRuntimeAdmission.DispatchException",
+      "NeMoDevRuntimeAdmission.WorkerExclusion",
+      "NeMoDevRuntimeAdmission.NativeAvailability",
+      "NeMoDevRuntimeAdmission.DeferredInputOwnership",
+      "NeMoDevRuntimeAdmission.ExpiredContinuation",
+      "NeMoDevRuntimeAdmission.ContinuationThread",
+      "NeMoDevRuntimeAdmission.StableAvailability"
+    ],
+    "independent_command_cases": [
+      "NeMoDevNativeTaskCommand.FileInput",
+      "NeMoDevNativeTaskCommand.OutputInput",
+      "NeMoDevNativeTaskCommand.ResourceInput",
+      "NeMoDevNativeTaskCommand.PreparationFailure",
+      "NeMoDevNativeTaskCommand.ExpiredFileInput",
+      "NeMoDevNativeTaskCommand.ExpiredOutputInput"
+    ],
+    "focused_run": {
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-runtime-admission/focused.xml",
+        "sha256": "bb596717a6b57c38085f48f820b74c461404e7c2cb7119aa5a38a11c26d54027"
+      },
+      "log": {
+        "path": "out/phase-six-runtime-admission/focused.log",
+        "sha256": "f1e353ea726178f275046bb2ede28aaa5dd6fecb63cc614215094a1a62a1e12f"
+      }
+    },
+    "ui_and_architecture_run": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-runtime-admission/ui-focused.xml",
+        "sha256": "4b2e3e6085f90549150c0fe2cebc178f39fddc03c9a57982b0c849aefbbcce7d"
+      },
+      "log": {
+        "path": "out/phase-six-runtime-admission/ui-focused.log",
+        "sha256": "b8004514603bd4583a6369858130d639e77edda341139139c30ef57b95e9d54d"
+      }
+    },
+    "file_dialog_run": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-runtime-admission/file-dialogs.xml",
+        "sha256": "96103aa98dde1d3773d4f0615f5c3634202ab430d544298cda32a4e1e899167f"
+      },
+      "log": {
+        "path": "out/phase-six-runtime-admission/file-dialogs.log",
+        "sha256": "1efc7ba504fad471c9d79a5bd413419ef5e9213cb2ddfb2407a701f2f00d26f4"
+      }
+    },
+    "native_player": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "unselected": 416,
+      "cases": [
+        "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground",
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "report": {
+        "path": "out/phase-six-runtime-admission/player.xml",
+        "sha256": "c21701bd59b6e4969b7ea46a2f1e4c739f3c67a487d065f7a513b1062b990a94"
+      },
+      "log": {
+        "path": "out/phase-six-runtime-admission/player.log",
+        "sha256": "21307dab2ce104dfba36401be9604f8e1afc9a33d130d4c9526bd68b62c44f71"
+      },
+      "sample": {
+        "path": "local-samples/data/BBSamples/3D Transformations/Add Control Point.cmo",
+        "sha256": "8c7226ff981b6a56ae5c44bd0695a6d2e4b7c870ff83e6e73e0e769436f09ad4"
+      }
+    },
+    "stable_availability": {
+      "case": "NeMoDevRuntimeAdmission.StableAvailability",
+      "idle_iterations": 1000,
+      "owned_iterations": 1000,
+      "heap_allocations": 0,
+      "timing_measured": false
+    },
+    "final_architecture_check": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-runtime-admission/architecture-final.xml",
+        "sha256": "03d850db129a11f71839da8845b548dd9c8d10463c9ef09e53f300cadffb36bd"
+      },
+      "log": {
+        "path": "out/phase-six-runtime-admission/architecture-final.log",
+        "sha256": "791211f13e5b76571c2ed1c02fde2d54ee7bae4198be9393ca26abff1f46e2af"
+      }
+    }
+  },
+  "regression_comparison": {
+    "description": "四项相同回归在原实现上均失败，分别检查绘制后重新准入、忙碌时不访问检查回调、错误线程及检查抛异常。",
+    "cases": [
+      {
+        "case": "NeMoDevRuntimeAdmission.DispatchRecheck",
+        "expected_failure": true
+      },
+      {
+        "case": "NeMoDevRuntimeAdmission.BusyCheck",
+        "expected_failure": true
+      },
+      {
+        "case": "NeMoDevRuntimeAdmission.WrongThread",
+        "expected_failure": true
+      },
+      {
+        "case": "NeMoDevRuntimeAdmission.AdmissionException",
+        "expected_failure": true
+      }
+    ],
+    "report": {
+      "path": "out/phase-six-runtime-admission/red.xml",
+      "sha256": "bce897f8e367d4b84efbe85906f4ac487003e337429b71e98f6c99551a15b5f6"
+    },
+    "log": {
+      "path": "out/phase-six-runtime-admission/red.log",
+      "sha256": "dcb2311e58a52e216a3326ebc0d61dc1383e5b430654df3b393bc5a79bfd9461"
+    },
+    "build_log": {
+      "path": "out/phase-six-runtime-admission/red-build.log",
+      "sha256": "55ab61da8a614778f1247cf00868e84809f7047b0940b4adb1d5156fbdebe479"
+    },
+    "original_sources": [
+      {
+        "path": "out/phase-six-runtime-admission/RuntimeOperation-before.h",
+        "sha256": "5396b80601e7edc17fa9b26d7229b53f866b157fc7bb9905b81301e2690e4b17"
+      },
+      {
+        "path": "out/phase-six-runtime-admission/RuntimeOperation-before.cpp",
+        "sha256": "b448dd19fd6c2147220805b7c98632fff399a07fcc446b8e77983dff787eab92"
+      }
+    ]
+  },
+  "diagnosis": {
+    "file_dialog_fixture": {
+      "description": "首次完整回归停在未启动运行时的文件对话框测试；改为显式检查未启动时拒绝，再启动实际运行时，检查排队结果并限制等待，不降低原有断言。",
+      "initial_log": {
+        "path": "out/phase-six-runtime-admission/full-first.log",
+        "sha256": "fa2a8d6d57e3d7dc14362890498ed35f80241e3e0c0d654a4b0b07f5b2d5223f"
+      }
+    },
+    "ui_thread_reads": {
+      "description": "队列的主线程检查暴露 Settle 和 Debugger 等待辅助函数在测试协程读取队列的问题；调用栈显示编辑器持续渲染，测试停在 Settle。改用已有主线程读取流程，为无自定义 GUI 的测试提供默认主线程回调。",
+      "initial_log": {
+        "path": "out/phase-six-runtime-admission/full-second.log",
+        "sha256": "122f29c2846f5319d71b45d83b4bda0fd0a45283509b600666667095316075e8"
+      },
+      "sample": {
+        "path": "out/phase-six-runtime-admission/app-stall-sample.txt",
+        "sha256": "1dd5f7a97749b97e13d56368cdf91c2d84514ee192f0004ee46b8f2b5d709951"
+      }
+    },
+    "dependency": "资源命令直接使用统一队列，因此仅增加 S42 -> S15 依赖；架构及分层检查规则未改。",
+    "duplicate_input": {
+      "description": "既有集成回归发现查重选择后续加载丢失提交来源，已将延后输入与工作完成统一续接。",
+      "initial_report": {
+        "path": "out/phase-six-runtime-admission/editor-first.xml",
+        "sha256": "059824bded8dc9f9f69f76ae851cfa8b9d326c3d0e31fd882945758e1368fb6b"
+      },
+      "initial_log": {
+        "path": "out/phase-six-runtime-admission/editor-first.log",
+        "sha256": "78f1f8f66d1219412b0baed365076c2d99d6042f9f83511cebea04caaefc6119"
+      }
+    }
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-runtime-admission/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-runtime-admission/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-runtime-admission/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-runtime-admission/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "protected_sources": {
+      "ui/native/LayoutRenderer.cpp": {
+        "sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      },
+      "editor/Editor.h": {
+        "sha256": "3250f5acd55fb01df85f5ceb7fc936ce049af9d5644c4f519aa1cb24261da5bd",
+        "unchanged": true
+      },
+      "tests/CheckLayering.cmake": {
+        "sha256": "21d8262c4e6d66fa2aff9f616464646b677b8efc4a5026adf40d4eb58a1fc58d",
+        "unchanged": true
+      },
+      "tests/CheckArchitecture.py": {
+        "sha256": "bd108c931ee61c88828c5b1b43fe3d7f1afe62f21b72d2b58d4dce864d2c44ca",
+        "unchanged": true
+      }
+    },
+    "gpu_and_cpu_fallback": "完整 app、双视口、故障注入、快照及原生 Player 保留普通纹理快通道和通用 readback/upload fallback。"
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "thresholds_changed": false,
+    "description": "按用户安排等待空闲窗口；本轮只验证准入检查的零分配，不进行计时验收。"
+  },
+  "separate_work": [
+    "runtime-isolation"
+  ]
+}

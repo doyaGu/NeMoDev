@@ -1,5 +1,36 @@
 # Architecture checks and migration results
 
+RuntimeOperation now owns native task admission and workflow ownership. File,
+output and resource-input controllers keep their parameters and results, while
+a move-only request reserves the runtime across user input and subsequent tasks.
+Worker completions and deferred input callbacks submit under the same source;
+an expired source cannot enter another workflow. Completion and cancellation
+release the request before notifying presentation code.
+
+`Busy()` describes queued/running work and still suspends native rendering only
+when needed. `Available()` also excludes a workflow waiting for input, so other
+native commands cannot enter it. `CanQueue()` adds the existing edit and gesture
+checks. Start repeats admission after frame drawing, and wrong-thread or
+reentrant checks never read native state or mutate the queue. Admission errors
+and exceptions finish once without starting work. Execution, diagnostics,
+preferences and plugin/path commands use this shared availability through
+EditorApplication; their duplicated availability callbacks are removed.
+Filesystem-only resource scanning remains independent. The public C interface,
+SDK, file formats, GPU texture path and CPU fallback are unchanged.
+The resource-command source group now depends on the existing task-queue group;
+no feature-specific busy callback or coordinator is added. UI tests read queue
+and startup state on the editor thread, including tests without a custom GUI.
+The file-dialog fixture explicitly checks refusal before runtime startup and
+requires its worker to start before waiting for completion.
+Four independent queue cases failed against the original implementation. All
+18 queue cases, six workflow/command cases and all 281 Release CTests now pass
+without skips; native Player and double-viewport desktop checks pass 7/7.
+Idle and owned availability checks retain zero heap allocations across 1,000
+iterations each. SDK source/runtime files and the five GPU transfer files match
+their original contents. Timing acceptance still waits for the user's idle
+window, and runtime process isolation remains separate. Results and diagnostic
+logs are recorded in `baselines/runtime-admission-macos-arm64-metal.json`.
+
 EditorApplication now separates internal state by lifetime. Its private State
 coordinates the document, view scopes, command dispatch and callback depth;
 it no longer owns the module, configuration, query, draft or tool maps.
