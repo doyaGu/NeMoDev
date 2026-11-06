@@ -439,10 +439,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(Start(ctx));
         {
             NativeWindowInput nativeInput(ctx);
-            OnMainThread(ctx, [&] {
-                const vdev::EditorClient client(App().WorkspaceForTests().Application().Host(), second);
-                IM_CHECK_NO_RET(client.Command("layout.toggle-fullscreen").status == EDITOR_OK);
-            });
+            AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return EditorWindow(); }));
             IM_CHECK(Until(ctx, [&] {
                 auto *view = App().Layout(second);
                 auto *render = view ? view->View().RenderContext() : nullptr;
@@ -472,6 +469,30 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                 return !App().Layout(second)->FullScreen() && NativeFocus(EditorWindow()) &&
                        App().Layout(second)->UsesGpuViewport();
             }));
+            // Enter again through the same window shortcut, then transfer
+            // native focus while keys and a mouse button are still held.
+            AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return EditorWindow(); }));
+            IM_CHECK(Until(ctx, [&] {
+                auto *view = App().Layout(second);
+                return view && view->FullScreen() &&
+                       NativeFocus(static_cast<SDL_Window *>(view->View().RenderContext()->GetWindowHandle()));
+            }));
+            OnMainThread(ctx, [&] {
+                auto *window = static_cast<SDL_Window *>(App().Layout(second)->View().RenderContext()->GetWindowHandle());
+                PushKey(window, SDL_SCANCODE_F6, true);
+                PushMouse(window, 100, 100, true);
+            });
+            IM_CHECK(Until(ctx, [] {
+                return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT);
+            }));
+            session.StealFocus();
+            IM_CHECK(Until(ctx, [&] {
+                auto *view = App().Layout(second);
+                return view && !view->FullScreen() && !view->PlayerMode() && view->UsesGpuViewport() &&
+                       NativeFocus(session.other) && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN);
+            }));
+            IM_CHECK(Released(ctx));
+            IM_CHECK(App().DebuggerForTests()->GetState() == vdev::Debugger::State::Paused);
         }
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(App().Layout().GpuViewportTextureForTests()->NativeTexture() == texture &&
