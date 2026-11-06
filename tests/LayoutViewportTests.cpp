@@ -86,13 +86,13 @@ void TestLayoutViewports(vdev::CkRuntimeHost &runtime) {
     EditorView a = 0, b = 0;
     Viewport first(17), second(31);
     LayoutTargetLookup lookup = [&](EditorView id) {
-        return id == b && b ? LayoutTarget{b, right, &second} : LayoutTarget{a, left, &first};
+        return id == b && b ? LayoutTarget{b, &right, &second} : LayoutTarget{a, &left, &first};
     };
     LayoutCommands commands(editor, [&] { return &doc; }, lookup, selection);
     LayoutPresentation presentation(editor, [&] { return &doc; }, lookup, selection, preferences, [] { return false; });
     RuntimeOperation operations;
     SnapshotCommands snapshots(
-        editor, operations, [&](EditorView id) -> LayoutViewport & { return *lookup(id).viewport; },
+        editor, operations, [&](EditorView id) -> LayoutViewport * { return lookup(id).viewport; },
         [&] { return &doc; });
     Check(commands.Register(error) && presentation.Register(error) && snapshots.Register(error) &&
               editor.Activate(EDITOR_IMGUI_VERSION, error),

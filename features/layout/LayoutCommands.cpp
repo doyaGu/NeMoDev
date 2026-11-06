@@ -94,7 +94,7 @@ struct LayoutCommands::Data {
         return doc && doc->IsOpen() && doc->Token() == request.scope.document ? doc : nullptr;
     }
     uint64_t Version(Document &doc, const LayoutTarget &target) {
-        auto &view = target.view;
+        auto &view = *target.view;
         auto &state = versions[target.id];
         auto *scene = view.Scene(); auto *camera = view.Camera(); auto *time = doc.Context()->GetTimeManager();
         const QueryState next{doc.Token(), doc.ChangeRevision(), doc.TopologyRevision(), selection.Revision(), selection.Locked(),
@@ -110,7 +110,8 @@ struct LayoutCommands::Data {
         auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request);
         if (!doc) return EDITOR_STALE;
         const auto target = self.view(request->scope.view);
-        auto &view = target.view;
+        if (!target.view) return EDITOR_STALE;
+        auto &view = *target.view;
         auto *context = doc->Context();
         auto *scene = view.Scene();
         const auto section = Text(*request, "section");
@@ -202,7 +203,8 @@ struct LayoutCommands::Data {
         auto &entry = *static_cast<Entry *>(data); auto &self = *entry.owner; auto *doc = self.DocumentOf(*request);
         if (!doc) return EDITOR_STALE;
         const auto target = self.view(request->scope.view);
-        auto &view = target.view;
+        if (!target.view) return EDITOR_STALE;
+        auto &view = *target.view;
         switch (entry.action) {
         case Copy: {
             const auto *source = Arg(*request, "objects"); if (!source) return EDITOR_INVALID;
@@ -303,8 +305,10 @@ struct LayoutCommands::Data {
         }
         return EDITOR_INVALID;
     }
-    static EditorStatus Ready(void *data, const EditorHost *, const EditorRequest *) {
-        return static_cast<Entry *>(data)->owner->editor.NativeAvailable() ? EDITOR_OK : EDITOR_REFUSED;
+    static EditorStatus Ready(void *data, const EditorHost *, const EditorRequest *request) {
+        auto &self = *static_cast<Entry *>(data)->owner;
+        if (!self.editor.NativeAvailable()) return EDITOR_REFUSED;
+        return self.view(request->scope.view).view ? EDITOR_OK : EDITOR_STALE;
     }
 };
 LayoutCommands::LayoutCommands(EditorApplication &editor, std::function<Document *()> current, LayoutTargetLookup view,
@@ -314,7 +318,8 @@ LayoutCommands::~LayoutCommands() = default;
 void LayoutCommands::Poll(EditorView source) {
     if (!m_Data->editor.NativeAvailable() || m_Data->editor.HasEdits()) return;
     if (auto *doc = m_Data->current(); doc && doc->IsOpen() && !doc->EditOpen())
-        m_Data->Version(*doc, m_Data->view(source));
+        if (const auto target = m_Data->view(source); target.view)
+            m_Data->Version(*doc, target);
     for (auto it = m_Data->versions.begin(); it != m_Data->versions.end();) {
         if (it->first && !m_Data->editor.Scope(it->first).view)
             it = m_Data->versions.erase(it);
@@ -382,7 +387,10 @@ bool LayoutCommands::Register(std::string &error) {
         {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.choose-group"), EDITOR_TEXT("builtin.layout"), EDITOR_TEXT("Select Group"), &target, 1, Data::Run, &m_Data->entries[4], EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.restore-interface"), EDITOR_TEXT("builtin.layout"), EDITOR_TEXT("Restore Layout"), restore, 5, Data::Run, &m_Data->entries[5], EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.copy"), EDITOR_TEXT("builtin.layout"), EDITOR_TEXT("Copy Objects"), &objects, 1, Data::Run, &m_Data->entries[6], EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE}};
-    for (auto &command : commands) command.state = Data::Ready;
+    for (auto &command : commands) {
+        command.state = Data::Ready;
+        command.view = EDITOR_TEXT("layout.viewport");
+    }
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("layout.scene");
     module.commands = commands; module.commandCount = 7; module.queries = &query; module.queryCount = 1;
     return m_Data->editor.Register(module, error) && m_Data->gestures.Register(m_Data->editor, error);

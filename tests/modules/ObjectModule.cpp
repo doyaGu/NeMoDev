@@ -1187,6 +1187,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
             ++static_cast<Module *>(data)->canvasCameras; auto next = *request; next.handler = EDITOR_TEXT("builtin.layout");
             return host->execute(host->data, EditorString EDITOR_TEXT("layout.set-camera"), &next, sink);
         }, data, EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE});
+    descriptors->commands.back().view = EDITOR_TEXT("layout.viewport");
     static const EditorParameter foldArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("object"), EDITOR_OBJECT}};
     descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.toggle-fold"), EDITOR_TEXT("example.canvas"),

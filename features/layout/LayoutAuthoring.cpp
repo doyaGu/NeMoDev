@@ -165,9 +165,10 @@ struct LayoutAuthoring::Data {
     static EditorStatus Creation(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (!doc || self.view(r->scope.view).view.Context() != doc->Context())
+        const auto target = self.view(r->scope.view);
+        if (!doc || !target.view || target.view->Context() != doc->Context())
             return EDITOR_STALE;
-        auto *camera = self.view(r->scope.view).view.Camera();
+        auto *camera = target.view->Camera();
         const auto &p = self.preferences;
         const auto selected =
             self.selection.References().size() == 1 ? self.selection.References().front() : ObjectRef{};
@@ -186,7 +187,8 @@ struct LayoutAuthoring::Data {
     static EditorStatus Pick(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (!doc || self.view(r->scope.view).view.Context() != doc->Context())
+        const auto viewport = self.view(r->scope.view);
+        if (!doc || !viewport.view || viewport.view->Context() != doc->Context())
             return EDITOR_STALE;
         const auto x = Arg(*r, "x").real, y = Arg(*r, "y").real;
         const auto type = Arg(*r, "kind").text;
@@ -196,7 +198,7 @@ struct LayoutAuthoring::Data {
             y > INT32_MAX || (kind != "behavior" && kind != "resource" && kind != "attribute" && kind != "material") ||
             ctrl > 1)
             return EDITOR_INVALID;
-        const auto info = self.view(r->scope.view).view.PickInfo(int(x), int(y));
+        const auto info = viewport.view->PickInfo(int(x), int(y));
         auto *context = doc->Context();
         const auto selected = self.Selected(*doc);
         const auto contains = [&](CK_ID id) {
@@ -212,7 +214,7 @@ struct LayoutAuthoring::Data {
             auto *declaration = CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype)));
             if (!declaration)
                 return EDITOR_INVALID;
-            auto receivers = BehaviorReceivers(*doc, self.view(r->scope.view).view, info,
+            auto receivers = BehaviorReceivers(*doc, *viewport.view, info,
                                                declaration->GetCompatibleClassId(), ctrl != 0, selected);
             target = receivers.target;
             highlight = receivers.highlight;
@@ -258,12 +260,13 @@ struct LayoutAuthoring::Data {
     static EditorStatus Highlight(void *data, const EditorHost *, const EditorRequest *r, EditorSink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (!doc || self.view(r->scope.view).view.Context() != doc->Context())
+        const auto target = self.view(r->scope.view);
+        if (!doc || !target.view || target.view->Context() != doc->Context())
             return EDITOR_STALE;
         const auto ref = Arg(*r, "target").object;
         if (ref && !doc->Resolve(ref))
             return EDITOR_STALE;
-        self.view(r->scope.view).view.SetDropTarget(ref.object);
+        target.view->SetDropTarget(ref.object);
         return EDITOR_OK;
     }
     static EditorStatus Material(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
@@ -317,10 +320,11 @@ struct LayoutAuthoring::Data {
         }
         LayoutPickInfo info;
         std::vector<ObjectRef> selected;
+        const auto viewport = self.view(position.count ? r->scope.view : 0);
         if (position.count) {
-            if (self.view(r->scope.view).view.Context() != doc->Context())
+            if (!viewport.view || viewport.view->Context() != doc->Context())
                 return EDITOR_STALE;
-            info = self.view(r->scope.view).view.PickInfo(int(position.data[0]), int(position.data[1]));
+            info = viewport.view->PickInfo(int(position.data[0]), int(position.data[1]));
             selected = self.Selected(*doc);
         }
         std::vector<std::vector<ObjectRef>> receivers;
@@ -330,7 +334,7 @@ struct LayoutAuthoring::Data {
             if (position.count) {
                 auto *declaration =
                     CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype)));
-                picked = doc->References(BehaviorReceivers(*doc, self.view(r->scope.view).view, info,
+                picked = doc->References(BehaviorReceivers(*doc, *viewport.view, info,
                                                            declaration->GetCompatibleClassId(),
                                                            Arg(*r, "ctrl").integer != 0, selected)
                                              .objects);
@@ -345,8 +349,8 @@ struct LayoutAuthoring::Data {
         size_t lastReceiver = receivers.size() - 1;
         while (receivers[lastReceiver].empty())
             --lastReceiver;
-        if (self.view(r->scope.view).view.Context() == doc->Context())
-            self.view(r->scope.view).view.SetDropTarget(0);
+        if (viewport.view && viewport.view->Context() == doc->Context())
+            viewport.view->SetDropTarget(0);
         std::string messages;
         ObjectRef lastBlock{}, lastScript{};
         for (size_t index = 0; index < prototypes.size(); ++index) {
@@ -388,10 +392,16 @@ struct LayoutAuthoring::Data {
             auto *behavior = CKBehavior::Cast(doc->Resolve(lastBlock));
             const bool asking = index == lastReceiver && ask != 2 && (ask == 1 || targets.size() == 1) &&
                                 (behavior->GetInputParameterCount() > 0 || behavior->IsUsingTarget());
+            if (asking && !viewport.view) {
+                if (!edit->Cancel())
+                    return Result(EditResult::Error("Unable to restore the dropped Building Block"), sink);
+                return Result(
+                    EditResult::Refused("No native 3D Layout is available to edit Building Block parameters"), sink);
+            }
             if (asking) {
                 self.document = doc->Token();
                 self.source = r->scope.view;
-                self.viewport = self.view(r->scope.view).id;
+                self.viewport = viewport.id;
                 self.script = lastScript;
                 self.block = lastBlock;
                 for (auto *input : Inputs(behavior))
@@ -414,7 +424,8 @@ struct LayoutAuthoring::Data {
     static EditorStatus Parameters(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (self.edit && self.view(r->scope.view).id != self.viewport)
+        if (self.edit && r->scope.view != self.source &&
+            (!self.viewport || self.view(r->scope.view).id != self.viewport))
             return EDITOR_NO_CHANGE;
         auto *block = doc ? CKBehavior::Cast(doc->Resolve(self.block)) : nullptr;
         if (!doc || doc->Token() != self.document || !block || !self.edit)
@@ -443,6 +454,8 @@ struct LayoutAuthoring::Data {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
         if (!doc || doc->Token() != self.document || !self.edit || Arg(*r, "drop").integer != self.drop)
+            return EDITOR_STALE;
+        if (r->scope.view != self.source && (!self.viewport || self.view(r->scope.view).id != self.viewport))
             return EDITOR_STALE;
         if (Arg(*r, "accept").integer > 1)
             return EDITOR_INVALID;

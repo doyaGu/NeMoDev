@@ -135,6 +135,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                       nullptr,
                       Preview,
                       Commit};
+    m->commands[1].view = EDITOR_TEXT("layout.viewport");
     m->commands[2] = {sizeof(EditorCommandDesc),
                       EDITOR_TEXT("example.gesture-failure"),
                       EDITOR_TEXT("example.gestures"),

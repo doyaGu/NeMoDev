@@ -35,10 +35,9 @@ const LayoutWindow &LayoutWindows::Active() const {
     return const_cast<LayoutWindows *>(this)->Active();
 }
 LayoutTarget LayoutWindows::Target(EditorView source) {
-    auto *window = Find(source);
-    if (!window)
-        window = &Active();
-    return {window->m_Window ? window->m_Window->id : 0, *window->m_View, window};
+    const auto id = m_Workspace.ActionView("layout.viewport", source);
+    auto *window = Find(id);
+    return window ? LayoutTarget{id, window->m_View.get(), window} : LayoutTarget{};
 }
 void *LayoutWindows::Create(EditorView id) {
     Entry entry;

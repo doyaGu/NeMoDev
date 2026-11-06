@@ -28,10 +28,10 @@ class LayoutWindows {
     std::function<void(EditorView, LayoutObject)> createObject;
     template <class F> void ForEach(F &&call) {
         if (m_Instances.empty())
-            call(LayoutTarget{0, *m_Primary.m_View, &m_Primary});
+            call(LayoutTarget{0, m_Primary.m_View.get(), &m_Primary});
         else
             for (auto &entry : m_Instances)
-                call(LayoutTarget{entry.first, *entry.second.window->m_View, entry.second.window});
+                call(LayoutTarget{entry.first, entry.second.window->m_View.get(), entry.second.window});
     }
 
   private:

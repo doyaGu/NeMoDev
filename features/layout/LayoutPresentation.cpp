@@ -88,9 +88,9 @@ struct LayoutPresentation::Data {
         return doc && doc->IsOpen() && doc->Context()->IsPlaying() && running();
     }
     EditorStatus FullScreen(const LayoutTarget &target, bool leave, bool activate, EditorSink sink) {
-        if (!target.viewport)
-            return EDITOR_REFUSED;
-        auto &view = target.view;
+        if (!target.view || !target.viewport)
+            return EDITOR_STALE;
+        auto &view = *target.view;
         std::string error;
         bool ok = true;
         if (leave || view.FullScreen()) {
@@ -102,8 +102,8 @@ struct LayoutPresentation::Data {
             ok = target.viewport->ExitFullScreen(activate, error);
         } else {
             if (fullscreen && *fullscreen != target.id) {
-                if ((!*fullscreen || editor.Scope(*fullscreen).view) && this->view(*fullscreen).view.FullScreen())
-                    return EDITOR_REFUSED;
+                const auto previous = this->view(*fullscreen);
+                if (previous.view && previous.view->FullScreen()) return EDITOR_REFUSED;
                 fullscreen.reset();
             }
             if (!view.Started() || !Player())
@@ -136,7 +136,7 @@ struct LayoutPresentation::Data {
             editor.report(result);
     }
     void Sync(const LayoutTarget &target) {
-        auto &view = target.view;
+        auto &view = *target.view;
         auto &state = states[target.id];
         auto *doc = current();
         const auto token = doc && doc->IsOpen() ? doc->Token() : DocumentToken{};
@@ -324,7 +324,9 @@ struct LayoutPresentation::Data {
     }
     static EditorStatus Pick(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
-        auto &view = self.view(request->scope.view).view;
+        const auto target = self.view(request->scope.view);
+        if (!target.view) return EDITOR_STALE;
+        auto &view = *target.view;
         auto *doc = self.current();
         if (!doc || !doc->IsOpen() || doc->Token() != request->scope.document)
             return EDITOR_STALE;
@@ -353,7 +355,8 @@ struct LayoutPresentation::Data {
     static EditorStatus State(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         const auto target = self.view(request->scope.view);
-        auto &view = target.view;
+        if (!target.view) return EDITOR_STALE;
+        auto &view = *target.view;
         auto *doc = self.current();
         auto *camera = view.Camera();
         std::string selected = "Nothing selected";
@@ -389,12 +392,13 @@ struct LayoutPresentation::Data {
         if (!x || !y || !std::isfinite(x->real) || !std::isfinite(y->real) || x->real < INT_MIN || x->real > INT_MAX ||
             y->real < INT_MIN || y->real > INT_MAX)
             return EDITOR_INVALID;
+        const auto target = static_cast<Data *>(data)->view(request->scope.view);
+        if (!target.view) return EDITOR_STALE;
         return Write(sink,
                      {{"text",
                        EDITOR_TEXT_VALUE,
                        {},
-                       static_cast<Data *>(data)->DebugText(static_cast<Data *>(data)->view(request->scope.view).view,
-                                                            int(x->real), int(y->real))}});
+                       static_cast<Data *>(data)->DebugText(*target.view, int(x->real), int(y->real))}});
     }
     static EditorStatus Run(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &entry = *static_cast<Entry *>(data);
@@ -413,7 +417,7 @@ LayoutPresentation::~LayoutPresentation() = default;
 void LayoutPresentation::Poll(EditorView source) {
     if (!m_Data->editor.NativeAvailable())
         return;
-    m_Data->Sync(m_Data->view(source));
+    if (const auto target = m_Data->view(source); target.view) m_Data->Sync(target);
     for (auto it = m_Data->states.begin(); it != m_Data->states.end();) {
         if (it->first && !m_Data->editor.Scope(it->first).view)
             it = m_Data->states.erase(it);

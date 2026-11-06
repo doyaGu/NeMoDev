@@ -85,7 +85,7 @@ std::vector<Filter> Filters(bool load) {
 struct SnapshotCommands::Data {
     EditorApplication &editor;
     RuntimeOperation &operations;
-    std::function<LayoutViewport &(EditorView)> viewport;
+    std::function<LayoutViewport *(EditorView)> viewport;
     std::function<Document *()> current;
     SnapshotBuffer buffer;
     SaveFileOperations *fileOperations = nullptr;
@@ -277,7 +277,9 @@ struct SnapshotCommands::Data {
                 return self.Put({}, -1, sink);
             std::vector<unsigned char> pixels;
             int width = 0, height = 0;
-            if (!self.viewport(request->scope.view).CapturePixels(pixels, width, height) || width <= 0 || height <= 0 ||
+            auto *viewport = self.viewport(request->scope.view);
+            if (!viewport) return EDITOR_STALE;
+            if (!viewport->CapturePixels(pixels, width, height) || width <= 0 || height <= 0 ||
                 width > INT_MAX / 4 || pixels.size() != size_t(width) * size_t(height) * 4)
                 return EDITOR_REFUSED;
             return self.Put(entry.action == Take ? ShrinkImage(pixels.data(), width, height, width * 4,
@@ -486,7 +488,7 @@ struct SnapshotCommands::Data {
     }
 };
 SnapshotCommands::SnapshotCommands(EditorApplication &editor, RuntimeOperation &operations,
-                                   std::function<LayoutViewport &(EditorView)> viewport,
+                                   std::function<LayoutViewport *(EditorView)> viewport,
                                    std::function<Document *()> current)
     : m_Data(new Data{editor, operations, std::move(viewport), std::move(current)}) {}
 SnapshotCommands::~SnapshotCommands() = default;

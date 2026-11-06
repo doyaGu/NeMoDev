@@ -305,7 +305,7 @@ private:
         [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
     SnapshotCommands m_Snapshots{
         m_Editor, m_Session.runtimeOperation,
-        [this](EditorView source) -> LayoutViewport & { return *m_Layouts.Target(source).viewport; },
+        [this](EditorView source) { return m_Layouts.Target(source).viewport; },
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
 
 #ifdef VIRTOOLSDEV_UI_TESTS

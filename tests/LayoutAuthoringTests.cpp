@@ -81,10 +81,12 @@ void TestLayoutAuthoring(vdev::CkRuntimeHost &runtime) {
     LayoutView view(runtime);
     view.CompositionChanged();
     SchematicNavigation navigation;
-    bool available = true;
+    bool available = true, viewportAvailable = true;
     EditorApplication editor([&] { return &doc; }, [&] { return available; });
     LayoutAuthoring authoring(
-        editor, [&] { return &doc; }, [&](EditorView) { return LayoutTarget{0, view}; }, selection, preferences,
+        editor, [&] { return &doc; }, [&](EditorView) {
+            return viewportAvailable ? LayoutTarget{0, &view} : LayoutTarget{};
+        }, selection, preferences,
         [&]() -> SchematicNavigation & { return navigation; });
     int remembers = 0, shows = 0;
     authoring.rememberBehavior = [&](uint64_t) { ++remembers; };
@@ -176,6 +178,12 @@ void TestLayoutAuthoring(vdev::CkRuntimeHost &runtime) {
     Check(client.Query("layout.creation").status == EDITOR_REFUSED && drop(one).status == EDITOR_REFUSED,
           "authoring accessed the runtime while busy");
     available = true;
+    viewportAvailable = false;
+    const auto scriptsBefore = doc.Scripts().size();
+    Check(drop(one, 1).status == EDITOR_REFUSED && !doc.EditOpen() && doc.Scripts().size() == scriptsBefore,
+          "a missing native viewport left an unfinishable behavior drop");
+    reads.CheckRestored();
+    viewportAvailable = true;
     EditorStatus worker = EDITOR_OK;
     std::thread thread([&] { worker = client.Query("layout.creation").status; });
     thread.join();

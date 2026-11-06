@@ -21,8 +21,10 @@ class LayoutViewport {
 // One registered Layout and its native view. The window owns both; command
 // callbacks resolve the requesting scope rather than changing a global view.
 struct LayoutTarget {
-    EditorView id;
-    LayoutView &view;
+    EditorView id = 0;
+    // A missing or replaced native viewport has no target. Callers must not
+    // substitute a different instance for an explicit source.
+    LayoutView *view = nullptr;
     LayoutViewport *viewport = nullptr;
 };
 using LayoutTargetLookup = std::function<LayoutTarget(EditorView)>;

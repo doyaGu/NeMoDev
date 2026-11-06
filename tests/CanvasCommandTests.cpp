@@ -55,7 +55,7 @@ void TestCanvasCommands(vdev::CkRuntimeHost &runtime) {
     selection.Restore(doc, {first.created, second.created});
     bool available = true; EditorApplication editor([&] { return &doc; }, [&] { return available; });
     SelectionCommands select([&] { return &doc; }, selection);
-    LayoutCommands layout(editor, [&] { return &doc; }, [&](EditorView) { return LayoutTarget{0, view}; }, selection);
+    LayoutCommands layout(editor, [&] { return &doc; }, [&](EditorView) { return LayoutTarget{0, &view}; }, selection);
     Clipboard clipboard;
     SchematicGraphCommands schematic([&] { return &doc; }, [] { return true; }, clipboard);
     Check(select.Register(editor, error) && layout.Register(error) && schematic.Register(editor, error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
