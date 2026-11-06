@@ -366,6 +366,13 @@ const char *EditorWorkspace::ShortcutLabel(const char *property) const {
         if (b.first == property) return b.second.c_str();
     return nullptr;
 }
+void EditorWorkspace::CommandResult(const EditorResponse &result) {
+    if (result.message.empty()) return;
+    m_Error = result.message;
+    // Deferred commands are reported once by EndFrame after they run.
+    if (result.status != EDITOR_QUEUED && m_Application.report)
+        m_Application.report(result);
+}
 bool EditorWorkspace::EditMenu(const char *location, ObjectRef target, EditorEdit &edit, EditorView &owner) {
     bool opened = false;
     for (auto &m : m_Application.Menus())
@@ -376,7 +383,7 @@ bool EditorWorkspace::EditMenu(const char *location, ObjectRef target, EditorEdi
                 if (ImGui::MenuItem(m.label.c_str(), ShortcutLabel(m.action.c_str()), Checked(m, request.scope),
                                     m_Application.CommandState(m.action, request) == EDITOR_OK)) {
                     const auto result = m_Application.Execute(m.action, request);
-                    if (!result.message.empty()) m_Error = result.message;
+                    CommandResult(result);
                 }
             } else if (ImGui::MenuItem(label.c_str(), ShortcutLabel(m.action.c_str()), false,
                                       m_Application.CanEdit(m.action, m_Application.Scope(owner), target) == EDITOR_OK))
@@ -404,7 +411,7 @@ void EditorWorkspace::CommandShortcuts() {
             m_Application.CommandState(binding.first, {m_Application.Scope()}) == EDITOR_OK &&
             Binding(binding.first, m_Application.BindingPhase(binding.first), true)) {
             const auto result = m_Application.Execute(binding.first, {m_Application.Scope(), nullptr, 0});
-            if (!result.message.empty()) m_Error = result.message;
+            CommandResult(result);
         }
 }
 EditorView EditorWorkspace::ActionView(const std::string &type, EditorView source) const {
@@ -435,7 +442,7 @@ void EditorWorkspace::Shortcuts(EditorScope scope) {
             m_Application.CommandState(binding.first, {scope}) == EDITOR_OK &&
             Binding(binding.first, m_Application.BindingPhase(binding.first), true)) {
             const auto result = m_Application.Execute(binding.first, {scope});
-            if (!result.message.empty()) m_Error = result.message;
+            CommandResult(result);
         }
 }
 EditorStatus EditorWorkspace::Toolbar(const std::string &location, EditorScope scope, const EditorToolbarFrame &area) {
@@ -492,7 +499,7 @@ EditorStatus EditorWorkspace::Toolbar(const std::string &location, EditorScope s
         }
         if (clicked && !item.action.empty()) {
             const auto result = m_Application.Execute(item.action, request);
-            if (!result.message.empty()) m_Error = result.message;
+            CommandResult(result);
         }
     }
     return EDITOR_OK;

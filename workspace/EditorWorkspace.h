@@ -118,6 +118,7 @@ class EditorWorkspace : private EditorViewNavigation {
     const WorkspaceViewPlacement *Placement(const View &) const;
     std::vector<unsigned> BuildLayout(unsigned dockspace, bool closeSeparated);
     bool Checked(const MenuEntry &, EditorScope);
+    void CommandResult(const EditorResponse &);
     EditorApplication &m_Application;
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;

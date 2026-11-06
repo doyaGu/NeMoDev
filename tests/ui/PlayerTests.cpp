@@ -6,6 +6,7 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -350,6 +351,70 @@ bool SaveImage(const char *name, const Image &image) {
 } // namespace
 
 void RegisterPlayerTests(ImGuiTestEngine *engine) {
+    auto *unavailable = IM_REGISTER_TEST(engine, "playerstate", "unavailable_fullscreen_keeps_both_viewports");
+    unavailable->GuiFunc = MainThreadGui;
+    unavailable->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        EditorView second = 0;
+        std::string mode;
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            second = workspace.Open("layout.viewport", "test.unavailable-fullscreen");
+            IM_CHECK_NO_RET(second && workspace.Focus(second));
+            mode = App().SettingsForTests().Text("3D Layout\\Player Mode\\Render Mode");
+            App().SettingsForTests().Set("3D Layout\\Player Mode\\Render Mode", "1x1x32x1");
+            auto &editor = workspace.Application();
+            IM_CHECK_NO_RET(editor.Execute("runtime.play", {editor.Scope()}).status == EDITOR_OK);
+        });
+        ctx->Yield(5);
+        const auto token = App().State().document->Token();
+        const auto revision = App().State().document->ChangeRevision();
+        const auto history = App().State().History().UndoCount();
+        const auto redo = App().State().History().CanRedo();
+        const auto selection = App().State().objectSelection.References();
+        std::array<SDL_GPUTexture *, 2> textures{};
+        std::array<CKDWORD, 2> handles{};
+        bool hidden = false;
+        size_t warnings = 0;
+        const auto countWarnings = [] {
+            size_t count = 0;
+            for (const auto &entry : App().State().eventLog.Entries())
+                count += entry.text.find("unavailable fullscreen mode 1x1x32x1") != std::string::npos;
+            return count;
+        };
+        OnMainThread(ctx, [&] {
+            int i = 0;
+            for (auto *view : {&App().Layout(), App().Layout(second)}) {
+                IM_CHECK_NO_RET(view && view->UsesGpuViewport());
+                textures[i] = view->GpuViewportTextureForTests()->NativeTexture();
+                handles[i++] = view->GpuViewportHandleForTests();
+            }
+            warnings = countWarnings();
+            hidden = (SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN) != 0;
+        });
+        ctx->KeyPress(ImGuiMod_Alt | ImGuiKey_Enter);
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(countWarnings() == warnings + 1);
+            int i = 0;
+            for (auto *view : {&App().Layout(), App().Layout(second)}) {
+                IM_CHECK_NO_RET(view && !view->FullScreen() && view->UsesGpuViewport() &&
+                                view->GpuViewportTextureForTests()->NativeTexture() == textures[i] &&
+                                view->GpuViewportHandleForTests() == handles[i]);
+                ++i;
+            }
+            IM_CHECK_NO_RET(App().State().document->Token() == token &&
+                            App().State().document->ChangeRevision() == revision &&
+                            App().State().History().UndoCount() == history &&
+                            App().State().History().CanRedo() == redo &&
+                            App().State().objectSelection.References() == selection);
+            IM_CHECK_NO_RET(((SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN) != 0) == hidden);
+            auto &editor = App().WorkspaceForTests().Application();
+            IM_CHECK_NO_RET(editor.Execute("runtime.reset", {editor.Scope()}).status == EDITOR_OK);
+            App().SettingsForTests().Set("3D Layout\\Player Mode\\Render Mode", mode);
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Close(second));
+        });
+    };
     auto *multiple =
         IM_REGISTER_TEST(engine, "player", "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu");
     multiple->GuiFunc = MainThreadGui;

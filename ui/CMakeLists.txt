@@ -318,6 +318,11 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     set_tests_properties(NeMoDevUiAppearance PROPERTIES LABELS self-contained)
     nemodev_add_module(NeMoDevAppearanceModule SOURCES ../tests/modules/AppearanceModule.cpp)
     if(TARGET VirtoolsDevUiTests)
+        add_test(NAME VirtoolsDevUi.PlayerState.unavailable_fullscreen_keeps_both_viewports COMMAND VirtoolsDevUiTests
+                --ui-tests unavailable_fullscreen_keeps_both_viewports
+                --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/player-unavailable-fullscreen.xml")
+        set_tests_properties(VirtoolsDevUi.PlayerState.unavailable_fullscreen_keeps_both_viewports
+                PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
         foreach(_case gpu_viewport_close_after_draw_keeps_pending_image
                 gpu_viewport_context_stop_after_draw_keeps_pending_image)
             add_test(NAME VirtoolsDevUi.GpuLifetime.${_case} COMMAND VirtoolsDevUiTests
