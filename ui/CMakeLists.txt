@@ -423,6 +423,20 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     target_link_libraries(NeMoDevWorkspaceCloseTests PRIVATE VirtoolsDevWorkspace NeMoDevEditorApplication
             VirtoolsDevCore "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     nemodev_add_module(NeMoDevWorkspaceCloseModule SOURCES ../tests/modules/WorkspaceCloseModule.cpp)
+    add_executable(NeMoDevProfileStorageTests ../tests/ProfileStorageTests.cpp native/EditorProfileStorage.cpp)
+    target_link_libraries(NeMoDevProfileStorageTests PRIVATE VirtoolsDevWorkspace NeMoDevEditorApplication
+            VirtoolsDevCore SDL3::SDL3 "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
+    foreach(_case LegacyUser LegacyApplication Isolated LoadFailure LegacyLayout LegacyLayoutInvalid
+            PreferenceRefusal PreferenceException ModuleRefusal ModuleException WorkspaceRefusal WorkspaceException
+            PreparationRefusal PreparationException AutosaveRetry DelayedLayout RelativePath SessionPreferences
+            BusySave StartupFailure RestoreFailure Restart)
+        add_test(NAME NeMoDevProfileStorage.${_case} COMMAND NeMoDevProfileStorageTests ${_case})
+        set_tests_properties(NeMoDevProfileStorage.${_case} PROPERTIES LABELS self-contained)
+    endforeach()
+    add_dependencies(NeMoDevProfileStorageTests NeMoDevWorkspaceCloseModule)
+    add_test(NAME NeMoDevProfileStorage.Discovery COMMAND NeMoDevProfileStorageTests Discovery
+            "$<TARGET_FILE:NeMoDevWorkspaceCloseModule>")
+    set_tests_properties(NeMoDevProfileStorage.Discovery PROPERTIES LABELS self-contained)
     add_dependencies(NeMoDevWorkspaceCloseTests NeMoDevWorkspaceCloseModule)
     foreach(_case ReplacementFailure ReplacementRefusal MultipleReplacementFailure WriterRefusal WriterException
             SuccessfulReplacement NormalClose CloseCleanupExceptions ReplacementCleanupExceptions ForcedClose

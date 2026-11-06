@@ -1746,7 +1746,30 @@
         "NeMoDevEditorOwnership.FailedConfigurationKeepsDraft",
         "NeMoDevEditorOwnership.PreviewConfigurationCancel",
         "NeMoDevEditorOwnership.PendingPreviewConfiguration",
-        "NeMoDevEditorOwnership.QueryConfigurationFailure"
+        "NeMoDevEditorOwnership.QueryConfigurationFailure",
+        "NeMoDevProfileStorage.LegacyUser",
+        "NeMoDevProfileStorage.LegacyApplication",
+        "NeMoDevProfileStorage.Isolated",
+        "NeMoDevProfileStorage.LoadFailure",
+        "NeMoDevProfileStorage.LegacyLayout",
+        "NeMoDevProfileStorage.LegacyLayoutInvalid",
+        "NeMoDevProfileStorage.PreferenceRefusal",
+        "NeMoDevProfileStorage.PreferenceException",
+        "NeMoDevProfileStorage.ModuleRefusal",
+        "NeMoDevProfileStorage.ModuleException",
+        "NeMoDevProfileStorage.WorkspaceRefusal",
+        "NeMoDevProfileStorage.WorkspaceException",
+        "NeMoDevProfileStorage.PreparationRefusal",
+        "NeMoDevProfileStorage.PreparationException",
+        "NeMoDevProfileStorage.AutosaveRetry",
+        "NeMoDevProfileStorage.DelayedLayout",
+        "NeMoDevProfileStorage.RelativePath",
+        "NeMoDevProfileStorage.BusySave",
+        "NeMoDevProfileStorage.StartupFailure",
+        "NeMoDevProfileStorage.RestoreFailure",
+        "NeMoDevProfileStorage.Restart",
+        "NeMoDevProfileStorage.Discovery",
+        "NeMoDevProfileStorage.SessionPreferences"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1960,7 +1983,16 @@
         "NeMoDevEditorOwnership.PendingPreviewClose",
         "NeMoDevEditorOwnership.DraftScopeLifetime",
         "NeMoDevEditorOwnership.DocumentReplacement",
-        "NeMoDevEditorOwnership.QueryScopeLifetime"
+        "NeMoDevEditorOwnership.QueryScopeLifetime",
+        "NeMoDevProfileStorage.WorkspaceRefusal",
+        "NeMoDevProfileStorage.WorkspaceException",
+        "NeMoDevProfileStorage.PreparationRefusal",
+        "NeMoDevProfileStorage.PreparationException",
+        "NeMoDevProfileStorage.AutosaveRetry",
+        "NeMoDevProfileStorage.DelayedLayout",
+        "NeMoDevProfileStorage.BusySave",
+        "NeMoDevProfileStorage.RestoreFailure",
+        "NeMoDevProfileStorage.Restart"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -2061,7 +2093,12 @@
         "NeMoDevNativeTaskCommand.ExpiredFileInput",
         "NeMoDevNativeTaskCommand.ExpiredOutputInput",
         "NeMoDevDocumentView.ExternalProvider",
-        "NeMoDevDocumentView.RetainedInstances"
+        "NeMoDevDocumentView.RetainedInstances",
+        "NeMoDevProfileStorage.ModuleRefusal",
+        "NeMoDevProfileStorage.ModuleException",
+        "NeMoDevProfileStorage.StartupFailure",
+        "NeMoDevProfileStorage.Discovery",
+        "NeMoDevProfileStorage.Restart"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
