@@ -2601,7 +2601,7 @@ bool EditorApplication::ChangeDocument(const EditorDocumentChange &change, std::
     auto &s = *m_State;
     if (!s.Thread() || !s.active || s.stopped || s.drawing || s.querying || s.readOnlyCallbacks || s.modules.Busy() || s.queries.Notifying() ||
         change.size != sizeof(change) || change.phase < EDITOR_DOCUMENT_DETACH ||
-        change.phase > EDITOR_DOCUMENT_REPLACED || change.replaceContext > 1 || change.document != s.document || !s.NativeReady()) {
+        change.phase > EDITOR_DOCUMENT_LOADED || change.replaceContext > 1 || change.document != s.document || !s.NativeReady()) {
         error = "Invalid document change or lifecycle callback";
         return false;
     }

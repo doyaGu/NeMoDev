@@ -157,7 +157,8 @@
         "application/OutputCommands.*",
         "application/Printing.h",
         "ui/app/OutputInputs.*",
-        "ui/app/EnvironmentInputs.*"
+        "ui/app/EnvironmentInputs.*",
+        "application/FileLoadState.h"
       ]
     },
     {
@@ -344,7 +345,8 @@
         "!application/Preferences.*",
         "!application/EditorProfile.*",
         "!application/ProfileCommands.*",
-        "!application/WorkspaceState.*"
+        "!application/WorkspaceState.*",
+        "!application/FileLoadState.h"
       ]
     },
     {

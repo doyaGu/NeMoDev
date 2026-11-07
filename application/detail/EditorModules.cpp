@@ -442,6 +442,8 @@ void RegisteredModules::Stop(const EditorHost *host, const std::function<void(co
 }
 
 bool RegisteredModules::Document(const EditorHost *host, const EditorDocumentChange &change, std::string &error) {
+    // Unstarted modules have no presentation activity to update.
+    if (change.phase == EDITOR_DOCUMENT_LOADED && !started && !stopped && !Busy()) return true;
     if (!started || stopped || Busy()) {
         error = "Modules cannot change documents during another lifecycle callback";
         return false;

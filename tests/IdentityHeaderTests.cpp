@@ -56,7 +56,7 @@ extern "C" uint32_t EditorDocumentDataSizeFromC(void);
 extern "C" uint32_t EditorDocumentDataDescSizeFromC(void);
 extern "C" EditorDocumentData DocumentDataFromC(const unsigned char *, uint32_t);
 static_assert(__is_standard_layout(EditorDocumentData) && __is_trivially_copyable(EditorDocumentDataDesc), "C document data");
-static_assert(EDITOR_VERSION == 27, "Editor document lifecycle version");
+static_assert(EDITOR_VERSION == 28, "Editor file loading notification version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);

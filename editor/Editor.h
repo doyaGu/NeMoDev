@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 27u
+#define EDITOR_VERSION 28u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -507,7 +507,10 @@ typedef enum EditorModulePhase { EDITOR_PREPARE_FRAME, EDITOR_BEFORE_VIEWS, EDIT
 typedef enum EditorDocumentPhase {
     EDITOR_DOCUMENT_DETACH,
     EDITOR_DOCUMENT_RESTORE,
-    EDITOR_DOCUMENT_REPLACED
+    EDITOR_DOCUMENT_REPLACED,
+    // Successful file loading; document.file-state exposes the current result.
+    // Callbacks mark their own work pending; frame updates perform navigation.
+    EDITOR_DOCUMENT_LOADED
 } EditorDocumentPhase;
 typedef struct EditorDocumentChange {
     uint32_t size;
@@ -570,6 +573,8 @@ typedef struct EditorModuleDesc {
     // UI thread, between native tasks. DETACH releases context-dependent
     // resources while retaining instance state. RESTORE resumes the same
     // document after failure; REPLACED receives the new document after commit.
+    // LOADED publishes successful open/import/resource results through
+    // document.file-state. Defer navigation to the next BEFORE_VIEWS update.
     // Detach visits reverse dependency order, recovery visits forward order.
     // Callbacks may query and release their own resources, but cannot mutate
     // documents/configuration or submit commands. OK/NO_CHANGE succeeds.
