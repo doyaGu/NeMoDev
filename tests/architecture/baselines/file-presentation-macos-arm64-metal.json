@@ -1,0 +1,196 @@
+{
+  "description": "文件完成后的模块呈现、只读加载结果、布局恢复与报告归属。",
+  "base_revision": "0489e5b757deb4f49b2c74bcad7dac216d859412",
+  "recorded_utc": "2026-11-07T22:10:15.807923+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "module_interface": {
+    "version": 28,
+    "sdk_unchanged": true,
+    "file_formats_unchanged": true,
+    "description": "现有模块文档通知增加成功加载阶段，外部 Dev 模块需重编译；公共 C 头无 STL、CK SDK 或 SDL 依赖。"
+  },
+  "owners": {
+    "DocumentCommands": "文件加载结果与报告生成；当前文档的只读文件状态、已检查的无效连线分页及完成通知。",
+    "SchematicViews": "收到通知时保留 Script 身份与刷新需求；绘制前通过现有导航入口解析当前提供者。",
+    "LayoutWindows": "收到通知时保留本次原生布局与只读引用投影，绘制前核对文档和当前提供者；切换或停止丢弃旧数据。",
+    "LayoutCommands": "保存布局的对象引用投影与原有选择、相机恢复命令。",
+    "SchematicGraphCommands": "消费后台已检查的无效连线，不在加载完成通知中重新扫描脚本。",
+    "EditorApp": "转交日志、报告对话框、最近文件及启动工具；删除 CompleteOpen 中的视图流程。"
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-file-presentation/build-reviewed.log",
+      "sha256": "6c48cfc7d1ded85ac1662f8c464360c27ee19348838e2bc3430166bdd8ca1238"
+    },
+    "non_ui_run": {
+      "total": 249,
+      "passed": 249,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-file-presentation/non-ui.xml",
+        "sha256": "1ca0416586acc6e53f06324d2c92853288e0eae13a40010eb920054766d1f9d7"
+      },
+      "inventory": {
+        "path": "out/phase-six-file-presentation/non-ui-inventory.json",
+        "sha256": "03941491759d7786f9562db4404f22a06e004b5a4f27e12c25cecc981902487e"
+      },
+      "log": {
+        "path": "out/phase-six-file-presentation/non-ui.log",
+        "sha256": "63bec660f124cd99568e01fcdd06dd176df6ce71bf2a195038d241b84dc3dc28"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-file-presentation/non-ui-check.log",
+        "sha256": "7c9637bff2c288973c647c1869b8b322c9cd3431caf3a27619f2568e6ad7bba4"
+      }
+    },
+    "final_related_run": {
+      "total": 54,
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-file-presentation/final-focused.xml",
+        "sha256": "54ecff0797255d8bae37ced770d93b62793663487b29112f6827e2012b3a5f68"
+      },
+      "inventory": {
+        "path": "out/phase-six-file-presentation/final-focused-inventory.json",
+        "sha256": "6d7be24107d3967bbe43adfc362bb572562568fcaf964145f9a1eda805dbea99"
+      },
+      "log": {
+        "path": "out/phase-six-file-presentation/final-focused.log",
+        "sha256": "fd045edeca3046f225d50c44baefeb83039ea7939a74bd957685a45551aca116"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-file-presentation/final-focused-check.log",
+        "sha256": "a5f929f528b243ab10d6b973aa606ccc3d03ac7cd05dd800861fa8ce25727eb1"
+      }
+    },
+    "independent_cases": [
+      "NeMoDevFilePresentation.Loaded",
+      "NeMoDevFilePresentation.EmptyScript",
+      "NeMoDevFilePresentation.LayoutProjection",
+      "NeMoDevFilePresentation.Merge",
+      "NeMoDevFilePresentation.Replacement",
+      "NeMoDevFilePresentation.ProviderChanged",
+      "NeMoDevFilePresentation.DocumentChanged",
+      "NeMoDevFilePresentation.NoticeFailure",
+      "NeMoDevFilePresentation.FailedOpen",
+      "NeMoDevFilePresentation.SaveReport",
+      "NeMoDevFilePresentation.CancelledReport",
+      "NeMoDevFilePresentation.PlayerReport",
+      "NeMoDevFilePresentation.External",
+      "NeMoDevFilePresentation.DisabledModule",
+      "NeMoDevFilePresentation.DisabledViews",
+      "NeMoDevFilePresentation.Import",
+      "NeMoDevFilePresentation.Nmo"
+    ],
+    "final_changes": "无桌面回归后补充文档切换时释放加载数据、无效连线投影字段验证及分页上限断言；最终 54 项覆盖受影响的文件、编辑器、生命周期、公开头与分层检查。",
+    "architecture": {
+      "path": "out/phase-six-file-presentation/architecture-final.json",
+      "sha256": "a0f0cfc8081b8963b0a16ae57ec5d0a8f46048b7dba262da62e3eaf56be2bd3f"
+    },
+    "layering": {
+      "path": "out/phase-six-file-presentation/layering-final.log",
+      "sha256": "57d4ddf12c4cd5ce6b380b0e812262afe8910e795af9074f6c33c954608d2cc7"
+    },
+    "desktop_ui": {
+      "status": "not_run",
+      "description": "用户正在操作桌面，本轮不运行桌面 UI、Player 或焦点测试；保留待空闲窗口复验。"
+    },
+    "nmo": "真实 NMO 按新文档后导入处理，不应用已保存 composition 布局；空 Script 身份明确为零，新增用例捕获并修复了未初始化引用。",
+    "test_target_link": {
+      "path": "out/phase-six-file-presentation/build-thread-link.log",
+      "sha256": "2d8ff1b9ebae7923a5b9fbb2d0232848a221c06e60f5bb99164dbe14209cc291"
+    },
+    "linking": "独立测试显式链接 Threads::Threads，保持 Linux/Windows 线程链接要求；macOS 目标已重链接。"
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-file-presentation/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-file-presentation/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-file-presentation/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-file-presentation/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "protected_files": {
+      "ui/native/LayoutRenderer.cpp": {
+        "sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      },
+      "tests/CheckArchitecture.py": {
+        "sha256": "bd108c931ee61c88828c5b1b43fe3d7f1afe62f21b72d2b58d4dce864d2c44ca",
+        "unchanged": true
+      },
+      "tests/CheckLayering.cmake": {
+        "sha256": "21d8262c4e6d66fa2aff9f616464646b677b8efc4a5026adf40d4eb58a1fc58d",
+        "unchanged": true
+      }
+    }
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "timing_measured": false,
+    "thresholds_changed": false,
+    "description": "稳定帧不读取文件加载投影；GPU 快通道及 CPU fallback 源码未改，严格性能验收仍等待空闲窗口。"
+  },
+  "separate_work": [
+    "runtime-isolation"
+  ]
+}
