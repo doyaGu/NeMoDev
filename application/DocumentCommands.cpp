@@ -59,6 +59,73 @@ struct DocumentCommands::State {
     std::shared_ptr<Operation> active;
     std::unique_ptr<Input> input;
     std::string lastSaved;
+    DocumentToken loadedDocument{};
+    bool fileOpened = false, fileComposition = false, fileImported = false;
+    ObjectRef fileScript{};
+    std::vector<InvalidLink> fileInvalid;
+    static EditorStatus FileState(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        auto &self = *static_cast<State *>(data);
+        const bool current = self.HasDocument() && self.current()->Token() == self.loadedDocument;
+        const EditorValue values[] = {
+            {EDITOR_TEXT("opened"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(current && self.fileOpened)},
+            {EDITOR_TEXT("composition"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(current && self.fileComposition)},
+            {EDITOR_TEXT("script"), EDITOR_OBJECT, current ? self.fileScript : ObjectRef{}},
+            {EDITOR_TEXT("imported"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(current && self.fileImported)}};
+        return sink.write ? sink.write(sink.data, values, 4) : EDITOR_INVALID;
+    }
+    static EditorStatus InvalidFileLinks(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<State *>(data);
+        if (!self.HasDocument() || self.current()->Token() != self.loadedDocument) return EDITOR_STALE;
+        const auto *firstValue = Field(*request, "first"), *countValue = Field(*request, "count");
+        const auto first = firstValue ? firstValue->integer : 0;
+        const auto count = countValue ? countValue->integer : 128;
+        if (first > self.fileInvalid.size() || !count || count > 128) return EDITOR_INVALID;
+        const size_t end = size_t(first + std::min<uint64_t>(count, self.fileInvalid.size() - first));
+        EditorField rows{"rows", EDITOR_RECORD};
+        for (size_t i = size_t(first); i < end; ++i) {
+            const auto &link = self.fileInvalid[i];
+            EditorField row{std::to_string(i), EDITOR_RECORD};
+            row.fields = {{"script", EDITOR_OBJECT, self.current()->Reference(link.script)},
+                {"graph", EDITOR_OBJECT, self.current()->Reference(link.graph)},
+                {"slot", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(link.slot))},
+                {"stored-id", EDITOR_INTEGER_VALUE, {}, {}, link.link},
+                {"behavior", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(link.behaviorLink)},
+                {"reason", EDITOR_TEXT_VALUE, {}, link.reason}};
+            rows.fields.push_back(std::move(row));
+        }
+        const std::vector<EditorField> fields{std::move(rows), {"next", EDITOR_INTEGER_VALUE, {}, {}, end},
+            {"total", EDITOR_INTEGER_VALUE, {}, {}, self.fileInvalid.size()}};
+        const auto values = BorrowEditorFields(fields);
+        return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
+    }
+    void Loaded(Result &result) {
+        if (!HasDocument()) return;
+        auto &document = *current();
+        ObjectRef script{};
+        if (result.opened.opened) {
+            result.composition = document.CreatedFrom() == Document::Origin::LoadedComposition;
+            if (!document.Scripts().empty()) script = document.Reference(document.Scripts().front().id);
+        } else if (result.loaded.loaded) {
+            for (const auto &entry : document.Scripts())
+                if (std::find(result.loaded.objects.begin(), result.loaded.objects.end(), entry.id) != result.loaded.objects.end()) {
+                    script = document.Reference(entry.id); break;
+                }
+        } else if (result.action == Action::LoadScripts) {
+            for (const auto &item : result.resources.items) if (item.loaded && document.Resolve(item.created)) script = item.created;
+        }
+        const bool resources = std::any_of(result.resources.items.begin(), result.resources.items.end(),
+                                           [](const auto &item) { return item.loaded; });
+        if (!result.opened.opened && !result.loaded.loaded && !resources) return;
+        editor.Attach(document.Token(), document.TopologyRevision(), true, true);
+        loadedDocument = document.Token(); fileOpened = result.opened.opened;
+        fileComposition = result.composition; fileImported = result.loaded.loaded; fileScript = script; fileInvalid = result.opened.invalid;
+        std::string error;
+        if (!editor.ChangeDocument({sizeof(EditorDocumentChange), EDITOR_DOCUMENT_LOADED, document.Token(),
+                                    document.TopologyRevision(), 0}, error) && !error.empty()) {
+            if (!result.message.empty()) result.message += "; ";
+            result.message += error;
+        }
+    }
     struct DocumentInfoData {
         uint64_t document = 0;
         bool open = false, dirty = false, separateScene = false;
@@ -135,6 +202,10 @@ struct DocumentCommands::State {
         if (runtime.Busy()) return;
         const auto *document = current();
         const bool open = document && document->IsOpen();
+        if (loadedDocument.value && (!open || document->Token() != loadedDocument)) {
+            loadedDocument = {}; fileOpened = fileComposition = fileImported = false;
+            fileScript = {}; fileInvalid.clear();
+        }
         std::string levelName, sceneName;
         bool separateScene = false;
         if (open)
@@ -260,6 +331,12 @@ struct DocumentCommands::State {
             operation->result.action == Action::Revert) && current() &&
             current()->Token() == operation->result.document)) {
             try {
+                const auto previousMessage = operation->result.message;
+                Loaded(operation->result);
+                if (operation->result.message != previousMessage) {
+                    if (response.message == previousMessage) response.message = operation->result.message;
+                    else { if (!response.message.empty()) response.message += "; "; response.message += operation->result.message; }
+                }
                 presentation.FileFinished(operation->result);
             } catch (const std::exception &error) {
                 if (!response.message.empty()) response.message += "; ";
@@ -914,6 +991,45 @@ struct DocumentCommands::State {
     }
 };
 
+DocumentCommands::Report DocumentCommands::Describe(const Result &result) {
+    Report report;
+    const auto log = [&](LogLevel level, std::string text) { report.logs.emplace_back(level, std::move(text)); };
+    if (!result.message.empty()) log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
+    if (result.opened.opened) {
+        report.recentFile = result.path;
+        if (result.composition) {
+            if (result.opened.removed) log(LogLevel::Warning, std::to_string(result.opened.removed) + " invalid link(s) removed after loading");
+            if (!result.opened.invalid.empty()) log(LogLevel::Warning, std::to_string(result.opened.invalid.size()) + " invalid link(s): see the Links with Errors Explorer");
+        }
+        log(LogLevel::Info, "File Loaded Successfully. (" + result.path + ")");
+        if (IsPlayerFile(result.path)) log(LogLevel::Warning, "A file for the player: the Scripts' Schematic is rebuilt from their graphs "
+            "(no comments, colors or saved layout)");
+    }
+    if (result.loaded.loaded && (result.action == Action::Merge || result.action == Action::MergeScene)) report.recentFile = result.path;
+    for (const auto &item : result.resources.items)
+        log(item.loaded ? LogLevel::Info : LogLevel::Warning,
+            std::string(item.loaded ? "Loaded: " : "Load failed: ") + item.message + " (" + item.path + ")");
+    if ((result.action == Action::ExportObjects || result.action == Action::ExportBehaviors) && result.exported.saved)
+        log(LogLevel::Info, "Saved " + result.path);
+    if (result.status != EDITOR_CANCELLED && (result.saved.report.saved || !result.saved.report.errors.empty() ||
+        result.action == Action::Save || result.action == Action::SaveAs || result.action == Action::SaveVersion || result.action == Action::Player)) {
+        const auto &saved = result.saved.report;
+        const auto path = result.written.empty() ? result.path : result.written.front();
+        std::string text = (result.saved.saved ? "Saved " : "Save failed: ") + path;
+        text += "\nInterfaceChunks rewritten: " + std::to_string(saved.chunksWritten) +
+                "\nScripts verified in a new context: " + std::to_string(saved.scriptsVerified) +
+                "\nParameters verified: " + std::to_string(saved.parametersVerified);
+        for (const auto &error : saved.errors) text += "\nError: " + AnsiToUtf8(error);
+        for (const auto &note : saved.notes) text += "\nNote: " + AnsiToUtf8(note);
+        log(result.saved.saved ? LogLevel::Info : LogLevel::Error, text);
+        if (result.action == Action::Player) {
+            if (!result.saved.saved) report.text = "Save Level Error: " + (saved.errors.empty() ? std::string() : AnsiToUtf8(saved.errors.front()));
+        } else { report.text = std::move(text); report.title = "Save report"; report.format = "report"; }
+        if (saved.documentSaved) report.recentFile = path;
+    }
+    return report;
+}
+
 DocumentCommands::DocumentCommands(EditorApplication &editor, DocumentFiles &files, RuntimeOperation &runtime,
                                    std::function<Document *()> current, Presentation &presentation)
     : m_State(std::make_unique<State>(editor, files, runtime, std::move(current), presentation)) {
@@ -1091,7 +1207,17 @@ bool DocumentCommands::Register(std::string &error) {
         {EDITOR_TEXT("dirty"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("level"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("scene"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("separate-scene"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter fileFields[] = {{EDITOR_TEXT("opened"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("composition"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("script"), EDITOR_OBJECT},
+        {EDITOR_TEXT("imported"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter invalidFields[] = {{EDITOR_TEXT("rows"), EDITOR_RECORD},
+        {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter invalidArgs[] = {{EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE, 1}};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("document.file-invalid-links"), EDITOR_TEXT("builtin.documents"), invalidArgs, 2,
+         &State::InvalidFileLinks, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, invalidFields, 3},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("document.file-state"), EDITOR_TEXT("builtin.documents"), nullptr, 0,
+         &State::FileState, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, fileFields, 4},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("document.info"), EDITOR_TEXT("builtin.documents"), nullptr, 0,
          &State::DocumentInfo, m_State.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, documentFields, 7,
          [](void *data, const EditorHost *) { return static_cast<State *>(data)->documentInfoRevision; }},

@@ -1,5 +1,6 @@
 #include "core/schematic/SchematicModelBuilder.h"
 #include "features/schematic/SchematicGraphCommands.h"
+#include "application/FileLoadState.h"
 #include "features/schematic/SchematicPosition.h"
 #include "features/schematic/SchematicGeometry.h"
 #include "features/schematic/SchematicConnections.h"
@@ -631,6 +632,63 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
          EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Refresh Invalid Links"), nullptr, 0, Data::ScanInvalid,
          m_Data.get(), EDITOR_DOCUMENT, EDITOR_RUNTIME_CONTROL}};
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("schematic.graph");
+    module.data = this;
+    module.document = [](void *data, const EditorHost *host, const EditorDocumentChange *change) {
+        auto &self = *static_cast<SchematicGraphCommands *>(data);
+        if (change->phase == EDITOR_DOCUMENT_REPLACED) self.LoadedLinks({});
+        if (change->phase == EDITOR_DOCUMENT_LOADED) {
+            FileLoadState loaded;
+            auto *doc = self.m_Data->current();
+            if (!ReadFileLoadState(host, loaded) || !doc) return EDITOR_ERROR;
+            if (loaded.opened && loaded.composition) {
+                std::vector<InvalidLink> invalid;
+                uint64_t first = 0;
+                for (;;) {
+                    const EditorValue firstValue{EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, {}, {}, first};
+                    const EditorRequest request{host->scope(host->data, 0), &firstValue, 1};
+                    std::vector<EditorField> fields;
+                    const EditorSink sink{&fields, [](void *data, const EditorValue *values, uint32_t count) {
+                        return CopyEditorFields(*static_cast<std::vector<EditorField> *>(data), values, count);
+                    }};
+                    if (host->query(host->data, EditorString EDITOR_TEXT("document.file-invalid-links"), &request, sink) != EDITOR_OK)
+                        return EDITOR_ERROR;
+                    const EditorField *rows = nullptr, *next = nullptr, *total = nullptr;
+                    for (const auto &field : fields) {
+                        if (field.key == "rows") rows = &field;
+                        if (field.key == "next") next = &field;
+                        if (field.key == "total") total = &field;
+                    }
+                    if (!rows || rows->type != EDITOR_RECORD || !next || next->type != EDITOR_INTEGER_VALUE ||
+                        !total || total->type != EDITOR_INTEGER_VALUE || next->integer > total->integer ||
+                        next->integer < first || rows->fields.size() != next->integer - first) return EDITOR_INVALID;
+                    for (const auto &row : rows->fields) {
+                        if (row.type != EDITOR_RECORD || row.fields.size() != 6) return EDITOR_INVALID;
+                        InvalidLink link;
+                        unsigned seen = 0;
+                        for (const auto &field : row.fields) {
+                            unsigned bit = 0;
+                            if (field.key == "script" && field.type == EDITOR_OBJECT) { bit = 1; link.script = doc->NativeId(field.object); }
+                            else if (field.key == "graph" && field.type == EDITOR_OBJECT) { bit = 2; link.graph = doc->NativeId(field.object); }
+                            else if (field.key == "slot" && field.type == EDITOR_INTEGER_VALUE && field.integer <= INT32_MAX) { bit = 4; link.slot = int(field.integer); }
+                            else if (field.key == "stored-id" && field.type == EDITOR_INTEGER_VALUE && field.integer <= UINT32_MAX) { bit = 8; link.link = CK_ID(field.integer); }
+                            else if (field.key == "behavior" && field.type == EDITOR_INTEGER_VALUE && field.integer <= 1) { bit = 16; link.behaviorLink = field.integer != 0; }
+                            else if (field.key == "reason" && field.type == EDITOR_TEXT_VALUE) { bit = 32; link.reason = field.text; }
+                            if (!bit || (seen & bit)) return EDITOR_INVALID;
+                            seen |= bit;
+                        }
+                        if (seen != 63 || !link.script) return EDITOR_INVALID;
+                        link.address = ElementAddress::Capture(*doc, link.script, {ElementKind::Link, link.graph, link.link, link.slot});
+                        invalid.push_back(std::move(link));
+                    }
+                    if (next->integer == total->integer) break;
+                    if (next->integer == first) return EDITOR_INVALID;
+                    first = next->integer;
+                }
+                self.LoadedLinks(invalid);
+            }
+        }
+        return EDITOR_OK;
+    };
     module.queries = queries;
     module.queryCount = uint32_t(std::size(queries));
     module.commands = commands;

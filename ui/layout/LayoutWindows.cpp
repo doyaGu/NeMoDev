@@ -90,6 +90,7 @@ bool LayoutWindows::Start(SDL_Window *main, std::string *error) {
     return result;
 }
 void LayoutWindows::Stop() {
+    DiscardLoadedFile();
     ForEach([&](LayoutTarget target) { static_cast<LayoutWindow *>(target.viewport)->Stop(); });
     m_InputOwner = nullptr;
 }
@@ -242,6 +243,9 @@ bool LayoutWindows::Register(std::string &error, SDL_Window *mainWindow) {
     module.stop = [](void *data, const EditorHost *) { static_cast<LayoutWindows *>(data)->Stop(); };
     module.document = [](void *data, const EditorHost *, const EditorDocumentChange *change) {
         return static_cast<LayoutWindows *>(data)->DocumentChange(*change);
+    };
+    module.update = [](void *data, const EditorHost *, EditorModulePhase phase) {
+        if (phase == EDITOR_BEFORE_VIEWS) static_cast<LayoutWindows *>(data)->RestoreLoadedFile();
     };
     module.views = &view;
     module.viewCount = 1;

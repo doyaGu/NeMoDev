@@ -10,6 +10,7 @@ namespace vdev {
 class LayoutWindows {
   public:
     LayoutWindows(CkRuntimeHost &, ParameterCopies &, EditorApplication &, EditorWorkspace &);
+    ~LayoutWindows();
     bool Register(std::string &, SDL_Window *mainWindow = nullptr);
     LayoutWindow &Primary();
     const LayoutWindow &Primary() const;
@@ -48,6 +49,11 @@ class LayoutWindows {
     bool IsPrimary(EditorView) const;
     bool RegisterControls(EditorModuleDesc, std::string &);
     EditorStatus DocumentChange(const EditorDocumentChange &);
+    void RestoreLoadedFile();
+    struct LoadedLayout;
+    LoadedLayout *m_LoadedLayout = nullptr;
+    bool CaptureLoadedFile();
+    void DiscardLoadedFile();
     struct Action {
         LayoutWindows *owner;
         int command;

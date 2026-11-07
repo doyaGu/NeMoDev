@@ -426,57 +426,17 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
     if (m_Shutdown) return;
     m_Editor.Attach(m_Session.HasDocument() ? m_Session.document->Token() : DocumentToken{},
                     m_Session.document ? m_Session.document->TopologyRevision() : 0, true, m_Session.HasDocument());
-    m_Schematics.Validate();
-    using A = DocumentCommands::Action;
-    if (!result.message.empty())
-        m_Session.Log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
-    if ((result.action == A::Open || result.action == A::Revert) && result.opened.opened)
-        CompleteOpen(result.path, result.opened);
-    if (result.loaded.loaded) {
-        m_Schematics.ClearSelections();
-        m_Schematics.Invalidate();
-        if (result.action == A::Merge || result.action == A::MergeScene) RememberRecentFile(result.path);
-        for (const auto &script : m_Session.document->Scripts())
-            if (std::find(result.loaded.objects.begin(), result.loaded.objects.end(), script.id) != result.loaded.objects.end()) {
-                m_Schematics.Show(
-                    ElementAddress::Capture(*m_Session.document, script.id, Selection::HeaderOf(script.id)), {}, false);
-                break;
-            }
+    const auto report = DocumentCommands::Describe(result);
+    for (const auto &entry : report.logs) m_Session.Log(entry.first, entry.second);
+    if (!report.text.empty()) {
+        std::vector<EditorValue> values{TextArgument("text", report.text)};
+        if (!report.title.empty()) values.push_back(TextArgument("title", report.title));
+        if (!report.format.empty()) values.push_back(TextArgument("format", report.format));
+        EditorClient(m_Editor.Host(), 0).Command("message.show", values);
     }
-    for (const auto &item : result.resources.items) {
-        m_Session.Log(item.loaded ? LogLevel::Info : LogLevel::Warning,
-                    std::string(item.loaded ? "Loaded: " : "Load failed: ") + item.message + " (" + item.path + ")");
-        if (item.loaded) {
-            m_Schematics.Invalidate();
-            if (result.action == A::LoadScripts && item.created && m_Session.document->Resolve(item.created))
-                m_Schematics.Show(ElementAddress::Capture(*m_Session.document, item.created.object,
-                                                         Selection::HeaderOf(item.created.object)));
-        }
-    }
-    if ((result.action == A::ExportObjects || result.action == A::ExportBehaviors) && result.exported.saved)
-        m_Session.Log(LogLevel::Info, "Saved " + result.path);
-    if (result.status != EDITOR_CANCELLED && (result.saved.report.saved || !result.saved.report.errors.empty() ||
-        result.action == A::Save || result.action == A::SaveAs || result.action == A::SaveVersion || result.action == A::Player)) {
-        const auto &report = result.saved.report;
-        const auto path = result.written.empty() ? result.path : result.written.front();
-        std::string text = (result.saved.saved ? "Saved " : "Save failed: ") + path;
-        text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
-                "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
-                "\nParameters verified: " + std::to_string(report.parametersVerified);
-        for (const auto &error : report.errors) text += "\nError: " + AnsiToUtf8(error);
-        for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
-        m_Session.Log(result.saved.saved ? LogLevel::Info : LogLevel::Error, text);
-        if (result.action == A::Player) {
-            if (!result.saved.saved) {
-                EditorClient(m_Editor.Host(), 0).Command("message.show", {TextArgument("text",
-                    "Save Level Error: " + (report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front())))});
-            }
-        } else EditorClient(m_Editor.Host(), 0).Command("message.show", {
-            TextArgument("text", text), TextArgument("title", "Save report"), TextArgument("format", "report")});
-        if (report.documentSaved) RememberRecentFile(path);
-    }
+    if (!report.recentFile.empty()) RememberRecentFile(report.recentFile);
 #ifdef VIRTOOLSDEV_UI_TESTS
-    if (m_RunStartupAfterOpen && result.action == A::Open) {
+    if (m_RunStartupAfterOpen && result.action == DocumentCommands::Action::Open) {
         m_RunStartupAfterOpen = false;
         RunStartupActions(result.opened.opened);
     }
@@ -486,31 +446,6 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
 
 bool EditorApp::OpenFile(const std::string &path) {
     return Command("document.open", path).status == EDITOR_QUEUED;
-}
-
-void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
-    RememberRecentFile(path);
-    // NMO opens are imports into a new composition. Keep its editor state,
-    // just as Import File does, rather than restoring the library's layout.
-    if (m_Session.document->CreatedFrom() == Document::Origin::LoadedComposition) {
-        m_Layouts.ApplyLayoutData(result.layout, m_LayoutCommands.ProjectInterface(result.layout));
-        m_SchematicGraph.LoadedLinks(result.invalid);
-        if (result.removed) m_Session.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
-        if (!result.invalid.empty())
-            m_Session.Log(LogLevel::Warning, std::to_string(result.invalid.size()) + " invalid link(s): see the Links with Errors Explorer");
-    }
-    // Dev's Event Log line (language pack [File IO]).
-    m_Session.Log(LogLevel::Info, "File Loaded Successfully. (" + path + ")");
-    // Dev refuses a file for the player ("This content can only be opened in
-    // Players"); here its Scripts' Schematic is rebuilt from their graphs.
-    if (IsPlayerFile(path))
-        m_Session.Log(LogLevel::Warning, "A file for the player: the Scripts' Schematic is rebuilt from their graphs "
-                                       "(no comments, colors or saved layout)");
-    if (!m_Session.document->Scripts().empty()) {
-        const auto script = m_Session.document->Scripts().front().id;
-        m_Schematics.Show(ElementAddress::Capture(*m_Session.document, script, Selection::HeaderOf(script)), {}, false);
-    }
-    UpdateTitle();
 }
 
 void EditorApp::NewComposition(bool background) {

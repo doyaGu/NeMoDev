@@ -1,6 +1,7 @@
 #include "ui/schematic/SchematicViews.h"
 #include "ui/schematic/SchematicCanvas.h"
 #include "editor/ImGuiDrawing.h"
+#include "application/FileLoadState.h"
 #include <iterator>
 #include <stdexcept>
 
@@ -28,6 +29,8 @@ struct SchematicViews::Data {
     ViewOptions defaults;
     std::multimap<EditorView, SchematicCanvas *> canvases;
     mutable EditorView current = 0;
+    bool filePending = false, clearFileSelection = false;
+    ObjectRef fileScript{};
     struct Navigation { ElementAddress address; ObjectRef focus; EditorView view; };
     std::vector<Navigation> requested;
     SchematicCanvas *Canvas(EditorView id) const {
@@ -265,9 +268,32 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("schematic.views");
     module.data = this;
-    module.document = [](void *data, const EditorHost *, const EditorDocumentChange *change) {
-        if (change->phase == EDITOR_DOCUMENT_REPLACED) static_cast<SchematicViews *>(data)->DocumentClosed();
+    module.document = [](void *data, const EditorHost *host, const EditorDocumentChange *change) {
+        auto &self = *static_cast<SchematicViews *>(data);
+        if (change->phase == EDITOR_DOCUMENT_REPLACED) { self.DocumentClosed(); self.m_Data->filePending = false; self.m_Data->clearFileSelection = false; self.m_Data->fileScript = {}; }
+        if (change->phase == EDITOR_DOCUMENT_LOADED) {
+            FileLoadState loaded;
+            if (!ReadFileLoadState(host, loaded)) return EDITOR_ERROR;
+            self.m_Data->filePending = true;
+            self.m_Data->clearFileSelection |= loaded.imported;
+            if (loaded.script) self.m_Data->fileScript = loaded.script;
+        }
         return EDITOR_OK;
+    };
+    static const EditorString fileOrder[] = {EDITOR_TEXT("layout.window")};
+    module.optionalDependencies = fileOrder; module.optionalDependencyCount = 1;
+    module.update = [](void *data, const EditorHost *host, EditorModulePhase phase) {
+        auto &self = *static_cast<SchematicViews *>(data);
+        if (phase != EDITOR_BEFORE_VIEWS || !self.m_Data->filePending) return;
+        const auto script = self.m_Data->fileScript;
+        const bool clear = self.m_Data->clearFileSelection;
+        self.m_Data->filePending = self.m_Data->clearFileSelection = false;
+        self.m_Data->fileScript = {};
+        self.Validate();
+        if (clear) self.ClearSelections();
+        self.Invalidate();
+        if (script && script.document == host->scope(host->data, 0).document)
+            EditorClient(host, 0).Command("script.navigate", {ObjectArgument("target", script), IntegerArgument("background", 1)});
     };
     module.commands = all.data();
     module.commandCount = uint32_t(all.size());

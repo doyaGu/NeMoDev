@@ -151,7 +151,6 @@ private:
     void FileFinished(const DocumentCommands::Result &result) override;
     void HistoryChanged() override { m_Schematics.ClearSelections(); UpdateTitle(); }
     void Quit() override { m_Quit = true; }
-    void CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result);
     void RuntimeOperationFrame();
     // File > New Composition, Merge Composition (as New Scene), Revert to Saved.
     void NewComposition(bool background = true);

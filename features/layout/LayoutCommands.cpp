@@ -356,6 +356,7 @@ LayoutRestoreData LayoutCommands::ProjectInterface(const LayoutInterfaceData &da
 
 const std::vector<ProviderChoice> &LayoutCommands::DefaultProviders() {
     static const std::vector<ProviderChoice> choices{{"query", "layout.scene", "builtin.layout"},
+                                                     {"query", "layout.file-interface", "builtin.layout"},
                                                      {"command", "layout.set-camera", "builtin.layout"},
                                                      {"command", "layout.reset-camera", "builtin.layout"},
                                                      {"command", "layout.frame-representation", "builtin.layout"},
@@ -412,7 +413,24 @@ bool LayoutCommands::Register(std::string &error) {
         if (self.m_Targets) self.m_Targets([&self](LayoutTarget target) { self.Poll(target.id); });
         else self.Poll();
     };
-    module.commands = commands; module.commandCount = 7; module.queries = &query; module.queryCount = 1;
+    const EditorParameter fileFields[] = {{EDITOR_TEXT("group"), EDITOR_OBJECT}, {EDITOR_TEXT("camera"), EDITOR_OBJECT},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("locked"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("setups"), EDITOR_OBJECT_LIST}};
+    const EditorQueryDesc fileQuery{sizeof(EditorQueryDesc), EDITOR_TEXT("layout.file-interface"), EDITOR_TEXT("builtin.layout"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            auto &self = *static_cast<LayoutCommands *>(data);
+            auto *doc = self.m_Data->current();
+            if (!doc || !doc->IsOpen()) return EDITOR_STALE;
+            if (doc->CreatedFrom() != Document::Origin::LoadedComposition) return EDITOR_REFUSED;
+            const auto restored = self.ProjectInterface(ReadLayoutInterfaceData(doc->Context()));
+            std::vector<EditorField> fields{{"group", EDITOR_OBJECT, restored.group}, {"camera", EDITOR_OBJECT, restored.camera},
+                {"objects", EDITOR_OBJECT_LIST}, {"locked", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(restored.locked)},
+                {"setups", EDITOR_OBJECT_LIST}};
+            fields[2].objects = restored.selection; fields[4].objects = restored.setups;
+            const auto values = BorrowEditorFields(fields);
+            return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
+        }, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fileFields, 5};
+    const EditorQueryDesc queries[] = {query, fileQuery};
+    module.commands = commands; module.commandCount = 7; module.queries = queries; module.queryCount = 2;
     return m_Data->editor.Register(module, error) && m_Data->gestures.Register(m_Data->editor, error);
 }
 } // namespace vdev

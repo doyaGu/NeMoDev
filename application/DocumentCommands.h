@@ -72,6 +72,7 @@ class DocumentCommands {
         EditorStatus status = EDITOR_QUEUED;
         DocumentToken document{};
         std::string path;
+        bool composition = false;
         std::string message;
         std::vector<std::string> written;
         DocumentFiles::OpenResult opened;
@@ -81,6 +82,11 @@ class DocumentCommands {
         DocumentFiles::ExportResult exported;
         DocumentFiles::GraphResult graph;
     };
+    struct Report {
+        std::vector<std::pair<LogLevel, std::string>> logs;
+        std::string text, title, format, recentFile;
+    };
+    static Report Describe(const Result &);
     class Presentation {
       public:
         virtual ~Presentation() = default;

@@ -5,10 +5,20 @@
 #include "ui/schematic/Snapshots.h"
 #include "features/layout/LayoutSceneData.h"
 #include "workspace/EditorClient.h"
+#include "application/FileLoadState.h"
 #include <stdexcept>
 
 namespace vdev {
+struct LayoutWindows::LoadedLayout {
+    DocumentToken document{};
+    LayoutInterfaceData data;
+    LayoutRestoreData restore;
+};
+LayoutWindows::~LayoutWindows() { DiscardLoadedFile(); }
+void LayoutWindows::DiscardLoadedFile() { delete m_LoadedLayout; m_LoadedLayout = nullptr; }
+
 EditorStatus LayoutWindows::DocumentChange(const EditorDocumentChange &change) {
+    if (change.phase == EDITOR_DOCUMENT_LOADED) return CaptureLoadedFile() ? EDITOR_OK : EDITOR_ERROR;
     if (change.phase == EDITOR_DOCUMENT_DETACH) {
         ForEach([&](LayoutTarget target) {
             auto &window = *static_cast<LayoutWindow *>(target.viewport);
@@ -24,6 +34,7 @@ EditorStatus LayoutWindows::DocumentChange(const EditorDocumentChange &change) {
         return EDITOR_OK;
     }
     if (change.phase == EDITOR_DOCUMENT_REPLACED) {
+        DiscardLoadedFile();
         DocumentClosed();
         ForEach([](LayoutTarget target) {
             static_cast<LayoutWindow *>(target.viewport)->ApplyLayoutData(LayoutInterfaceData{}, {});
@@ -33,6 +44,49 @@ EditorStatus LayoutWindows::DocumentChange(const EditorDocumentChange &change) {
     std::string error;
     if (!Start(m_MainWindow, &error)) throw std::runtime_error("3D Layout: " + error);
     return EDITOR_OK;
+}
+
+bool LayoutWindows::CaptureLoadedFile() {
+    FileLoadState loaded;
+    if (!ReadFileLoadState(m_Editor.Host(), loaded)) return false;
+    if (!loaded.opened || !loaded.composition) return true;
+    const auto views = m_Editor.Views();
+    const auto selected = std::find_if(views.begin(), views.end(), [](const auto &view) {
+        return std::string(view.id.data, view.id.size) == "layout.viewport";
+    });
+    if (selected == views.end() || selected->data != this) return true;
+    const auto result = EditorClient(m_Editor.Host(), 0).Query("layout.file-interface");
+    if (result.status != EDITOR_OK) return false;
+    const auto *group = EditorClient::Find(result, "group"), *camera = EditorClient::Find(result, "camera"),
+               *objects = EditorClient::Find(result, "objects"), *setups = EditorClient::Find(result, "setups"),
+               *locked = EditorClient::Find(result, "locked");
+    if (!group || group->type != EDITOR_OBJECT || !camera || camera->type != EDITOR_OBJECT ||
+        !objects || objects->type != EDITOR_OBJECT_LIST || !setups || setups->type != EDITOR_OBJECT_LIST ||
+        !locked || locked->type != EDITOR_INTEGER_VALUE || locked->integer > 1) return false;
+    const auto current = [this](ObjectRef ref) {
+        return !ref || (ref.document == m_Editor.Scope().document && m_Runtime.Context()->GetObjectByHandle({ref.object, ref.lifetime}));
+    };
+    if (!current(group->object) || !current(camera->object) ||
+        !std::all_of(objects->objects.begin(), objects->objects.end(), current) ||
+        !std::all_of(setups->objects.begin(), setups->objects.end(), current)) return false;
+    LayoutRestoreData restore;
+    restore.group = group->object; restore.camera = camera->object;
+    restore.selection = objects->objects; restore.setups = setups->objects; restore.locked = locked->integer != 0;
+    auto next = std::make_unique<LoadedLayout>();
+    next->data = ReadLayoutInterfaceData(m_Runtime.Context());
+    next->restore = std::move(restore); next->document = m_Editor.Scope().document;
+    delete m_LoadedLayout; m_LoadedLayout = next.release();
+    return true;
+}
+void LayoutWindows::RestoreLoadedFile() {
+    if (!m_LoadedLayout || !m_Editor.NativeAvailable()) return;
+    std::unique_ptr<LoadedLayout> loaded(m_LoadedLayout); m_LoadedLayout = nullptr;
+    if (loaded->document == m_Editor.Scope().document) {
+        const auto views = m_Editor.Views();
+        if (std::any_of(views.begin(), views.end(), [this](const auto &view) {
+                return std::string(view.id.data, view.id.size) == "layout.viewport" && view.data == this;
+            })) ApplyLayoutData(loaded->data, loaded->restore);
+    }
 }
 
 LayoutInterfaceData LayoutWindows::LayoutData() const {
