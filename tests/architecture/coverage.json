@@ -1107,7 +1107,24 @@
         "NeMoDevDocumentView.ThreadChecks",
         "NeMoDevDocumentView.ModuleOrder",
         "NeMoDevDocumentView.ExternalProvider",
-        "NeMoDevDocumentView.QueuedReplacement"
+        "NeMoDevDocumentView.QueuedReplacement",
+        "NeMoDevFilePresentation.Loaded",
+        "NeMoDevFilePresentation.EmptyScript",
+        "NeMoDevFilePresentation.LayoutProjection",
+        "NeMoDevFilePresentation.Merge",
+        "NeMoDevFilePresentation.Replacement",
+        "NeMoDevFilePresentation.ProviderChanged",
+        "NeMoDevFilePresentation.DocumentChanged",
+        "NeMoDevFilePresentation.NoticeFailure",
+        "NeMoDevFilePresentation.FailedOpen",
+        "NeMoDevFilePresentation.SaveReport",
+        "NeMoDevFilePresentation.CancelledReport",
+        "NeMoDevFilePresentation.PlayerReport",
+        "NeMoDevFilePresentation.External",
+        "NeMoDevFilePresentation.DisabledModule",
+        "NeMoDevFilePresentation.DisabledViews",
+        "NeMoDevFilePresentation.Import",
+        "NeMoDevFilePresentation.Nmo"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu",
@@ -1128,7 +1145,11 @@
         "VirtoolsDev.LoadFailurePreservation",
         "VirtoolsDev.LoadCallbacks",
         "VirtoolsDevDocumentFiles",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "NeMoDevFilePresentation.Merge",
+        "NeMoDevFilePresentation.FailedOpen",
+        "NeMoDevFilePresentation.Import",
+        "NeMoDevFilePresentation.Nmo"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu"
@@ -1996,7 +2017,12 @@
         "NeMoDevProfileStorage.DelayedLayout",
         "NeMoDevProfileStorage.BusySave",
         "NeMoDevProfileStorage.RestoreFailure",
-        "NeMoDevProfileStorage.Restart"
+        "NeMoDevProfileStorage.Restart",
+        "NeMoDevFilePresentation.LayoutProjection",
+        "NeMoDevFilePresentation.Replacement",
+        "NeMoDevFilePresentation.ProviderChanged",
+        "NeMoDevFilePresentation.DocumentChanged",
+        "NeMoDevFilePresentation.DisabledViews"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -2102,7 +2128,11 @@
         "NeMoDevProfileStorage.ModuleException",
         "NeMoDevProfileStorage.StartupFailure",
         "NeMoDevProfileStorage.Discovery",
-        "NeMoDevProfileStorage.Restart"
+        "NeMoDevProfileStorage.Restart",
+        "NeMoDevFilePresentation.NoticeFailure",
+        "NeMoDevFilePresentation.External",
+        "NeMoDevFilePresentation.DisabledModule",
+        "NeMoDevFilePresentation.DisabledViews"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
