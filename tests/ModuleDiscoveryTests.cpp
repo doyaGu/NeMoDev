@@ -10,6 +10,11 @@
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace fs = std::filesystem;
 namespace {
@@ -29,6 +34,28 @@ struct Variable {
         Environment(name, value.c_str());
     }
     ~Variable() { Environment(name, before ? before->c_str() : nullptr); }
+};
+// Keep the code mapped while checking exception cleanup order. An incorrect
+// unload then produces an assertion instead of executing an unmapped destructor.
+struct LibraryReference {
+    void *handle = nullptr;
+    explicit LibraryReference(const fs::path &file) {
+        if (file.empty()) return;
+#ifdef _WIN32
+        handle = LoadLibraryExW(file.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+#else
+        handle = dlopen(file.c_str(), RTLD_NOW | RTLD_LOCAL);
+#endif
+        Check(handle != nullptr, "cannot retain module for exception cleanup check");
+    }
+    ~LibraryReference() {
+        if (!handle) return;
+#ifdef _WIN32
+        FreeLibrary(static_cast<HMODULE>(handle));
+#else
+        dlclose(handle);
+#endif
+    }
 };
 std::vector<std::string> Lines(const fs::path &path) {
     std::ifstream input(path);
@@ -144,12 +171,19 @@ int main(int argc, char **argv) {
         for (const auto *mode : {"entry-error", "entry-throw", "bad-version", "duplicate-id", "missing", "cycle"}) {
             std::ofstream(log, std::ios::trunc).close();
             Environment("NEMODEV_MODULE_FAILURE", mode);
+            LibraryReference retained(std::string(mode) == "entry-throw" ? addon : fs::path{});
             Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
             Check(!editor.Assemble(sources(linked), Drawing, error) && !error.empty() && linked.stops == 1,
                   std::string("assembly failure did not clean linked modules: ") + mode);
             Check(vdev::EditorClient(editor.Host(), 0).Query("fixture.addon.value").status != EDITOR_OK,
                   "failed assembly left a callable query");
             const auto failed = Lines(log);
+            if (std::string(mode) == "entry-throw") {
+                const auto released = std::find(failed.begin(), failed.end(), "release entry exception fixture.addon");
+                const auto stopped = std::find(failed.begin(), failed.end(), "stop fixture.addon");
+                Check(released != failed.end() && released < stopped,
+                      "module cleanup ran before its entry exception was destroyed");
+            }
             Check(std::count(failed.begin(), failed.end(), "stop fixture.addon") == 1, "failed entry was not stopped exactly once");
             Environment("NEMODEV_MODULE_FAILURE", "");
             Check(editor.Assemble(sources(linked), Drawing, error), "assembly cannot retry after cleanup: " + error);

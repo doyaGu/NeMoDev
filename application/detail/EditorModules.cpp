@@ -731,10 +731,12 @@ bool RegisteredModules::Load(const EditorHost *host, const std::string &path, st
         modules.back()->library = library;
         return true;
     } catch (...) {
-        discard();
-        error = "Module entry raised an exception";
-        return false;
     }
+    // The exception's destructor may live in this library. Leave its handler
+    // before destroying module data or unmapping the code.
+    discard();
+    error = "Module entry raised an exception";
+    return false;
 }
 bool RegisteredModules::Assemble(EditorApplication &editor, const std::vector<EditorModuleSource> &sources,
                                  EditorDrawingVersion drawing, std::string &error,

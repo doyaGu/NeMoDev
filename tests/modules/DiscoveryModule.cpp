@@ -1,6 +1,7 @@
 #include "editor/Editor.h"
 
 #include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
@@ -13,6 +14,10 @@ void Record(const std::string &text) {
 }
 struct Unload { ~Unload() { Record("unload " MODULE_ID); } } unload;
 struct Data { bool throwingStop = false; };
+struct EntryError final : std::exception {
+    ~EntryError() override { Record("release entry exception " MODULE_ID); }
+    const char *what() const noexcept override { return "injected module entry exception"; }
+};
 void Stop(void *data) {
     auto *owned = static_cast<Data *>(data);
     const auto raised = owned->throwingStop;
@@ -47,7 +52,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         }, nullptr, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, &field, 1};
     out->queries = &query; out->queryCount = 1;
     if (mode == "entry-error") return EDITOR_ERROR;
-    if (mode == "entry-throw") throw std::runtime_error("injected module entry exception");
+    if (mode == "entry-throw") throw EntryError{};
     if (mode == "bad-version") ++out->version;
     if (mode == "duplicate-id") out->id = EDITOR_TEXT("fixture.embedded");
     return EDITOR_OK;
