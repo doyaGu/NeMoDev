@@ -330,6 +330,17 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/player-unavailable-fullscreen.xml")
         set_tests_properties(VirtoolsDevUi.PlayerState.unavailable_fullscreen_keeps_both_viewports
                 PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
+        add_test(NAME VirtoolsDevUi.SetupGrid.large_grid_layers_have_matching_cells COMMAND VirtoolsDevUiTests
+                --editor-module "$<TARGET_FILE:NeMoDevAppearanceModule>"
+                --ui-tests grid_reflow_multilayer_strokes_cancel_and_undo
+                --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/setup-large-grid.xml")
+        set_tests_properties(VirtoolsDevUi.SetupGrid.large_grid_layers_have_matching_cells
+                PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 45)
+        add_test(NAME VirtoolsDevUi.FileMenu.save_callback_document_replacement_releases_manager COMMAND VirtoolsDevUiTests
+                --ui-tests save_callback_keeps_document_open
+                --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/save-callback-lifetime.xml")
+        set_tests_properties(VirtoolsDevUi.FileMenu.save_callback_document_replacement_releases_manager
+                PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 45)
         foreach(_case gpu_viewport_close_after_draw_keeps_pending_image
                 gpu_viewport_context_stop_after_draw_keeps_pending_image)
             add_test(NAME VirtoolsDevUi.GpuLifetime.${_case} COMMAND VirtoolsDevUiTests

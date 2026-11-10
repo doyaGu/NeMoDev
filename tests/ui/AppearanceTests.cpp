@@ -2518,7 +2518,30 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(cells() == before);
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
-        OnMainThread(ctx, [&] { Object<CKGrid>(target.object)->SetDimensions(256, 256, 256, 256); });
+        OnMainThread(ctx, [&] {
+            // SetDimensions does not resize existing layer arrays. Prepare a
+            // separate large grid before adding layers, as in the Layer page
+            // fixture, and leave the edited grid's layer storage intact.
+            auto &document = *App().State().document;
+            auto *large = CKGrid::Cast(document.Context()->CreateObject(CKCID_GRID, "Large Setup grid"));
+            IM_CHECK_NO_RET(large);
+            large->SetDimensions(256, 256, 256, 256);
+            document.Include(large->GetID());
+            const auto type = RegisterGridLayerType(document, "Large Setup grid layer");
+            IM_CHECK_NO_RET(type.ok && AddGridLayer(document, large->GetID(), int(type.created)).ok);
+            const auto largeRef = document.Reference(large->GetID());
+            SetupDetails data;
+            IM_CHECK_NO_RET(ReadSetupDetails(EditorCommands(), largeRef, "grid", data));
+            const auto &layers = data.Values().Rows("layers");
+            IM_CHECK_NO_RET(layers.size() == 1);
+            const auto &squares = SetupFields(layers.front().fields).Integers("squares");
+            IM_CHECK_NO_RET(squares.size() == 256 * 256 &&
+                            std::all_of(squares.begin(), squares.end(), [](uint64_t value) { return value == 0; }));
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", largeRef)}).status <=
+                            EDITOR_NO_CHANGE);
+            view = App().WorkspaceForTests().Role("setupgrid");
+            IM_CHECK_NO_RET(view);
+        });
         ResizeSetup(ctx, view, 450);
         auto *child = canvas();
         IM_CHECK(child);

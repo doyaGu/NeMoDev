@@ -54,12 +54,13 @@ static void SubmitWebPage(ImGuiTestContext *ctx, bool cmo, bool overwrite) {
 class FileMenuSaveManager : public CKBaseManager {
 public:
     vdev::Document &document;
-    bool enabled = false;
-    explicit FileMenuSaveManager(vdev::Document &owner)
-        : CKBaseManager(owner.Context(), CKGUID(0x41e65027, 0x36d23517), "File menu save regression"), document(owner) {}
+    std::shared_ptr<std::atomic<bool>> enabled;
+    FileMenuSaveManager(vdev::Document &owner, std::shared_ptr<std::atomic<bool>> value)
+        : CKBaseManager(owner.Context(), CKGUID(0x41e65027, 0x36d23517), "File menu save regression"), document(owner),
+          enabled(std::move(value)) {}
     CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PostSave; }
     CKERROR PostSave() override {
-        if (enabled) {
+        if (*enabled) {
             document.Context()->GetCurrentLevel()->GetLevelScene()->SetFogEnd(777);
             document.MarkTopologyChanged();
         }
@@ -652,23 +653,23 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         const auto root = fs::current_path() / ("save-callback-" + std::to_string(SDL_GetTicksNS()));
         IM_CHECK(fs::create_directory(root));
         const auto source = root / "source.cmo";
-        FileMenuSaveManager *manager = nullptr;
+        const auto enabled = std::make_shared<std::atomic<bool>>(false);
         struct Cleanup {
             fs::path root;
-            FileMenuSaveManager *&manager;
+            const std::shared_ptr<std::atomic<bool>> &enabled;
             ~Cleanup() {
-                if (manager) manager->enabled = false;
+                *enabled = false;
                 std::error_code error;
                 fs::remove_all(root, error);
             }
-        } cleanup{root, manager};
+        } cleanup{root, enabled};
         OnMainThread(ctx, [&] {
             vdev::SaveReport report;
             IM_CHECK_NO_RET(vdev::SaveDocumentAs(*App().State().document, source.u8string(), {}, report));
             App().DropFiles({vdev::Utf8ToWide(source.u8string())}, 0, 0);
         });
         OnMainThread(ctx, [&] {
-            manager = new FileMenuSaveManager(*App().State().document);
+            auto *manager = new FileMenuSaveManager(*App().State().document, enabled);
             IM_CHECK_NO_RET(App().State().host.Context()->RegisterNewManager(manager) == CK_OK);
         });
         ctx->Yield(4);
@@ -677,7 +678,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//Save report/OK");
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(vdev::CreateLayoutObject(*App().State().document, vdev::LayoutObject::Frame3D).ok);
-            manager->enabled = true;
+            *enabled = true;
             App().RequestQuit();
         });
         ctx->Yield(3);
@@ -688,7 +689,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             return !App().ShouldQuit() && state.document->Dirty() &&
                    state.host.Context()->GetCurrentLevel()->GetLevelScene()->GetFogEnd() == 777;
         }));
-        OnMainThread(ctx, [&] { manager->enabled = false; });
+        OnMainThread(ctx, [&] { *enabled = false; });
         ctx->ItemClick("//Save report/OK");
         ctx->MenuClick("//##MainMenuBar/File/Save Composition");
         ctx->Yield(4);
@@ -696,6 +697,12 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//Save report/OK");
         ctx->MenuClick("//##MainMenuBar/File/New Composition");
         ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            // Context replacement destroys the manager. Cleanup only owns the
+            // control flag and must remain safe after that native lifetime ends.
+            IM_CHECK_NO_RET(enabled.use_count() == 1);
+            *enabled = false;
+        });
     };
     t = IM_REGISTER_TEST(engine, "filemenu", "web_page_runtime_version");
     t->GuiFunc = MainThreadGui;

@@ -81,7 +81,8 @@ def main():
                     raise RuntimeError(name + ': invalid appearance did not preserve the profile\n' + result.stdout.decode(errors='replace'))
                 return
             if result.returncode or not report.is_file():
-                raise RuntimeError(name + ': ' + result.stdout.decode(errors='replace'))
+                raise RuntimeError(f'{name}: process exit {result.returncode}, report exists: {report.is_file()}\n'
+                                   + result.stdout.decode(errors='replace'))
             cases = [c for c in ET.parse(report).getroot().iter('testcase') if c.find('skipped') is None]
             if len(cases) != count or any(c.get('status') != 'Success' for c in cases):
                 raise RuntimeError(name + ': appearance assertions failed\n' + result.stdout.decode(errors='replace'))
