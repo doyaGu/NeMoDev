@@ -64,14 +64,24 @@ def help_page(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary', type=Path, required=True)
-    parser.add_argument('--module', type=Path, required=True)
-    parser.add_argument('--results', type=Path, required=True)
-    parser.add_argument('--help-dir', type=Path, required=True)
+    parser.add_argument('--binary', type=Path)
+    parser.add_argument('--module', type=Path)
+    parser.add_argument('--results', type=Path)
+    parser.add_argument('--help-dir', type=Path)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--edit-category', choices=EDITING_CATEGORIES)
     mode.add_argument('--startup-only', action='store_true')
+    mode.add_argument('--list-editing', choices=EDITING_CATEGORIES)
+    parser.add_argument('--edit-case')
     args = parser.parse_args()
+    if args.edit_case and (not args.edit_category or args.edit_case not in editing_cases(args.edit_category)):
+        parser.error('--edit-case must name a scenario in --edit-category')
+    if args.list_editing:
+        print(';'.join(editing_cases(args.list_editing)))
+        return
+    for option in ('binary', 'module', 'results', 'help_dir'):
+        if getattr(args, option) is None:
+            parser.error('--' + option.replace('_', '-') + ' is required to run tests')
     args.results.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nemodev-appearance-') as temporary:
         profile = Path(temporary) / '外观.json'
@@ -114,7 +124,7 @@ def main():
             with help_page(args.help_dir):
                 categories = [args.edit_category] if args.edit_category else EDITING_CATEGORIES
                 for category in categories:
-                    for name in editing_cases(category):
+                    for name in ([args.edit_case] if args.edit_case else editing_cases(category)):
                         run('edit-' + name, 'edit', module=True, selection='^' + name + '$', expected=1)
         if args.edit_category:
             print(args.edit_category + ': all editing scenarios passed')

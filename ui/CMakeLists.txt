@@ -321,6 +321,10 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     set_tests_properties(NeMoDevUiAppearance PROPERTIES LABELS self-contained)
     nemodev_add_module(NeMoDevAppearanceModule SOURCES ../tests/modules/AppearanceModule.cpp)
     if(TARGET VirtoolsDevUiTests)
+        add_test(NAME VirtoolsDevUi.TestRegistrations COMMAND VirtoolsDevUiTests
+                --ui-tests "^architecture_baseline_registrations$"
+                --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/registrations.xml")
+        set_tests_properties(VirtoolsDevUi.TestRegistrations PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
         add_test(NAME VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup COMMAND VirtoolsDevUiTests
                 --ui-tests "^documentviews$" --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/document-views.xml")
         set_tests_properties(VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup
@@ -553,16 +557,24 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 --startup-only
                 --results "${PROJECT_BINARY_DIR}/appearance-startup")
         set_tests_properties(VirtoolsDevUi.appearance PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
+                "${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppearanceTests.cpp")
         foreach(_category appearance appearancespecialized appearanceparameters appearancebehaviors
                 appearancesyncstate appearancevaluedialogs appearanceschematicdialogs appearancesetupdialogs
                 appearancegraphdialogs appearancebreakpointdialogs appearanceapplicationdialogs appearanceoutputdialogs)
-            add_test(NAME VirtoolsDevUi.AppearanceEditing.${_category} COMMAND ${Python3_EXECUTABLE}
-                    "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
-                    --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevAppearanceModule>"
-                    --help-dir "${_runtime_data}/help" --edit-category "${_category}"
-                    --results "${PROJECT_BINARY_DIR}/appearance-${_category}")
-            set_tests_properties(VirtoolsDevUi.AppearanceEditing.${_category}
-                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 180)
+            execute_process(COMMAND ${Python3_EXECUTABLE} "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
+                    --list-editing "${_category}" OUTPUT_VARIABLE _appearance_cases
+                    OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+            foreach(_case IN LISTS _appearance_cases)
+                add_test(NAME VirtoolsDevUi.AppearanceEditing.${_case} COMMAND ${Python3_EXECUTABLE}
+                        "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
+                        --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevAppearanceModule>"
+                        --help-dir "${_runtime_data}/help" --edit-category "${_category}" --edit-case "${_case}"
+                        --results "${PROJECT_BINARY_DIR}/appearance-${_case}")
+                set_tests_properties(VirtoolsDevUi.AppearanceEditing.${_case}
+                        PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
+            endforeach()
         endforeach()
         add_test(NAME VirtoolsDevUi.moduleStartup COMMAND ${Python3_EXECUTABLE}
                 "${VIRTOOLSDEV_SOURCE_DIR}/tests/ModuleStartupTests.py"
