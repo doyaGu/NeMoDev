@@ -2,6 +2,8 @@
 
 #include "imgui.h"
 
+#include <cstdint>
+
 namespace vdev {
 
 // Schematic palette, modeled on Dev 2.5's Schematic View (a screenshot of
@@ -135,7 +137,7 @@ template <class F> void VisitSchematicColors(SchematicStyle &style, F color) {
 
 // Stored Script colors are GDI COLORREF (0x00BBGGRR), as Dev paints them
 // (0x96C8FA is the orange of "Topic" Scripts, 0xFAC896 the light blue).
-inline ImU32 ColorRefToImU32(uint32_t color, int alpha = 255) {
+inline ImU32 ColorRefToImU32(std::uint32_t color, int alpha = 255) {
     return IM_COL32(color & 0xFF, (color >> 8) & 0xFF, (color >> 16) & 0xFF, alpha);
 }
 

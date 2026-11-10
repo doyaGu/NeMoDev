@@ -798,7 +798,8 @@ struct DocumentCommands::State {
     EditorStatus Respond(uint64_t id, const std::string &choice, const std::string &path,
                          const EditorIntegers *actions = nullptr, const std::string &message = {}) {
         const auto operation = active;
-        auto submitting = operation ? operation->native.Enter() : RuntimeOperation::Request{}.Enter();
+        const RuntimeOperation::Request emptyRequest;
+        auto submitting = (operation ? operation->native : emptyRequest).Enter();
         try { return RespondToInput(id, choice, path, actions, message); }
         catch (const std::exception &error) {
             if (operation) { operation->result.message = error.what(); Finish(operation, EDITOR_ERROR); }
