@@ -250,7 +250,10 @@ jobs:
           path: ${{ env.CCACHE_DIR }}
           key: compiler-${{ matrix.os }}-${{ runner.arch }}-${{ steps.sdk.outputs.revision }}-${{ github.sha }}
       - name: Record the selected test inventory
-        run: ctest --preset '${{ matrix.preset }}' -L self-contained --show-only=json-v1 > out/test-inventory.json
+        run: |
+          filters=(-L self-contained)
+          if [[ "$RUNNER_OS" != Linux ]]; then filters+=(-LE gpu); fi
+          ctest --preset '${{ matrix.preset }}' "${filters[@]}" --show-only=json-v1 > out/test-inventory.json
       - name: Run core and UI regressions with software Vulkan
         if: runner.os == 'Linux'
         env:
@@ -265,7 +268,7 @@ jobs:
         env:
           SDL_VIDEO_DRIVER: dummy
         run: |
-          ctest --preset '${{ matrix.preset }}' -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
+          ctest --preset '${{ matrix.preset }}' -L self-contained -LE gpu --no-tests=error --output-junit "$PWD/out/results.xml"
           python tests/CheckCTestResults.py out/results.xml out/test-inventory.json
       - name: Install the production program
         run: |

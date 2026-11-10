@@ -265,6 +265,8 @@ endforeach ()
 # Original-composition regressions below retain their separate fixtures.
 get_property(_self_contained_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_self_contained_tests} PROPERTIES LABELS self-contained)
+# This fixture needs a graphics device even though its window stays hidden.
+set_property(TEST NeMoDevUiTextures APPEND PROPERTY LABELS gpu)
 # The samples of VIRTOOLSDEV_SAMPLE_ROOT/data. Edits a copy in memory;
 # outputs go to the build tree, never into data/.
 set(_dev_data "${VIRTOOLSDEV_SAMPLE_ROOT}/data")

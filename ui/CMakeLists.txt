@@ -391,6 +391,7 @@ if(VIRTOOLSDEV_BUILD_TESTS)
         set_tests_properties(NeMoDevDocumentView.${_case} PROPERTIES LABELS self-contained
                 ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
     endforeach()
+    set_property(TEST NeMoDevDocumentView.CameraRestart NeMoDevDocumentView.CameraDetach APPEND PROPERTY LABELS gpu)
     add_test(NAME NeMoDevDocumentView.ExternalProvider COMMAND NeMoDevDocumentViewTests ExternalProvider
             "$<TARGET_FILE:NeMoDevDocumentViewModule>")
     set_tests_properties(NeMoDevDocumentView.ExternalProvider PROPERTIES LABELS self-contained
