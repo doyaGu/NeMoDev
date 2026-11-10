@@ -12,7 +12,7 @@ foreach(_component IN LISTS _ballanced_components)
             "From the Ballanced checkout, run: git submodule update --init --recursive")
     endif()
 endforeach()
-find_package(SDL3 3.4.8 CONFIG REQUIRED)
+find_package(SDL3 3.4.20 CONFIG REQUIRED)
 if(NOT TARGET SDL3::SDL3-shared)
     message(FATAL_ERROR "The Ballanced runtime requires shared SDL3. "
         "Build and install SDL3 with SDL_SHARED=ON and SDL_STATIC=OFF, "

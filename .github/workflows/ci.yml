@@ -156,11 +156,11 @@ jobs:
             out/${{ matrix.preset }}/runtime/Bin/*.so*
             out/${{ matrix.preset }}/.ninja_log
             out/${{ matrix.preset }}/.ninja_deps
-          key: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.18-${{ steps.sdk.outputs.revision }}-${{ hashFiles('cmake/Ballanced.cmake', 'CMakeLists.txt', 'CMakePresets.json') }}
+          key: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.20-${{ steps.sdk.outputs.revision }}-${{ hashFiles('cmake/Ballanced.cmake', 'CMakeLists.txt', 'CMakePresets.json') }}
           # Reconfigure and build normally after restoration: Ninja/MSBuild
           # revalidate compiler flags. Deployment-only changes can reuse objects
           # from the same SDK, SDL and toolchain snapshot.
-          restore-keys: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.18-${{ steps.sdk.outputs.revision }}-
+          restore-keys: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.20-${{ steps.sdk.outputs.revision }}-
       - name: Initialize missing SDK components and record their revisions
         run: |
           git -C out/Ballanced submodule update --init --recursive \
@@ -182,11 +182,11 @@ jobs:
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: out/sdl
-          key: sdl-3.4.18-shared-${{ matrix.os }}-${{ runner.arch }}-v1
+          key: sdl-3.4.20-shared-${{ matrix.os }}-${{ runner.arch }}-v1
       - name: Build shared SDL
         if: steps.sdl-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch release-3.4.18 https://github.com/libsdl-org/SDL.git out/SDL
+          git clone --depth 1 --branch release-3.4.20 https://github.com/libsdl-org/SDL.git out/SDL
           if [[ "$RUNNER_OS" == Windows ]]; then
             cmake -S out/SDL -B out/sdl-build -G 'Visual Studio 17 2022' -A x64 -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF
           elif [[ "$RUNNER_OS" == macOS ]]; then
@@ -201,7 +201,7 @@ jobs:
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: out/sdl
-          key: sdl-3.4.18-shared-${{ matrix.os }}-${{ runner.arch }}-v1
+          key: sdl-3.4.20-shared-${{ matrix.os }}-${{ runner.arch }}-v1
       - name: Configure the editor and self-contained regressions
         run: |
           prefix='${{ github.workspace }}/out/sdl'

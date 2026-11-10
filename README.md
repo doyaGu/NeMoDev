@@ -76,7 +76,7 @@ You will need:
 
 - **CMake 3.25+** and a **C++17** toolchain: Visual Studio 2022 on Windows,
   GCC or Clang with Ninja on Linux, or Xcode command-line tools on macOS.
-- **Shared SDL3 3.4.8+**, installed with its CMake package. See SDL's
+- **Shared SDL3 3.4.20+**, installed with its CMake package. See SDL's
   [build instructions](https://wiki.libsdl.org/SDL3/README-cmake).
 - **Python 3.8+ and Pillow 9.1+** for compiling image resources.
 - **Ballanced's public `sdl` branch**, with its submodules initialized.
