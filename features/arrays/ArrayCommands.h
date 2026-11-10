@@ -1,7 +1,7 @@
 #pragma once
 #include "application/EditorApplication.h"
 namespace vdev {
-struct Clipboard;
+class Clipboard;
 class ArrayCommands {
   public:
     ArrayCommands(std::function<Document *()> current, Clipboard &clipboard)

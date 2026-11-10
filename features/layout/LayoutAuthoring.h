@@ -7,7 +7,7 @@ namespace vdev {
 class LayoutView;
 class ObjectSelection;
 struct Preferences;
-class SchematicNavigation;
+struct SchematicNavigation;
 
 // Creation settings, drop receivers and the pending behavior's parameter edit.
 // The native value editor joins that edit through EditorApplication::ApplyEdit.

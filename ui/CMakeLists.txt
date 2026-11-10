@@ -305,6 +305,10 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     target_sources(NeMoDevEditorTests PRIVATE ../tests/LayoutAuthoringTests.cpp ../tests/SetupProjectionTests.cpp ../tests/SetupPageTests.cpp ../features/setup/SetupViewData.cpp ../features/scene/SceneViewData.cpp)
     target_sources(NeMoDevEditorTests PRIVATE ../tests/SchematicPickingTests.cpp controls/DevTheme.cpp)
     target_sources(NeMoDevEditorTests PRIVATE ../tests/LayoutViewportTests.cpp)
+    target_sources(NeMoDevEditorTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}/tests/NativeHeaderTests.cpp")
+    set_property(SOURCE "${VIRTOOLSDEV_SOURCE_DIR}/tests/NativeHeaderTests.cpp" APPEND PROPERTY COMPILE_OPTIONS
+            "$<$<CXX_COMPILER_ID:MSVC>:/we4099>"
+            "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Werror=mismatched-tags>")
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     nemodev_add_module(NeMoDevEditorModule HOST NeMoDevEditorTests SOURCES ../tests/modules/ObjectModule.cpp)
     add_library(NeMoDevEnvironmentPlugin MODULE ../tests/EnvironmentPlugin.cpp)
