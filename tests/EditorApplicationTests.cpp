@@ -6,6 +6,7 @@
 #include "core/level/LevelCommands.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include <cstdlib>
+#include <clocale>
 #include <iostream>
 #include <stdexcept>
 #include <limits>
@@ -702,6 +703,9 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
 } // namespace
 int main(int argc, char **argv) {
     try {
+#ifndef _WIN32
+        Check(std::setlocale(LC_CTYPE, "") != nullptr, "native test locale");
+#endif
         Check(argc == 6, "module, environment and gesture fixture paths are required");
         Registration();
         VersionedQueries();
