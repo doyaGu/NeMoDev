@@ -5,6 +5,7 @@
 #include <set>
 #include <cmath>
 #include <iterator>
+#include <stdexcept>
 #include "editor/ImGuiDrawing.h"
 #include "imgui_internal.h"
 
