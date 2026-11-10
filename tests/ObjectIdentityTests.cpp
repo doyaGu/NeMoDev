@@ -21,14 +21,6 @@ public:
 alignas(ReusedObject) unsigned char reusedStorage[sizeof(ReusedObject)];
 void *ReusedObject::operator new(std::size_t) { return reusedStorage; }
 
-class ReusedParameter : public CKParameterOut {
-public:
-    explicit ReusedParameter(CKContext *context) : CKParameterOut(context, "Identity parameter") {}
-    static void *operator new(std::size_t);
-    static void operator delete(void *) noexcept {}
-};
-alignas(ReusedParameter) unsigned char parameterStorage[sizeof(ReusedParameter)];
-void *ReusedParameter::operator new(std::size_t) { return parameterStorage; }
 }
 
 void ObjectIdentities(CkRuntimeHost &host) {
@@ -172,18 +164,21 @@ void ObjectIdentityReplay(CkRuntimeHost &host) {
     CHECK(!document.History().Undo());
     CHECK(replacement->value == 0 && std::string(replacement->GetName()) == "Identity reuse");
 
-    auto *parameter = new ReusedParameter(context);
-    parameter->SetGUID(CKPGUID_INT);
+    // Parameters are created by the SDK factory; their constructors and
+    // implementation vtables are not part of the Windows DLL interface.
+    auto *parameter = context->CreateCKParameterOut("Identity parameter", CKPGUID_INT);
+    CHECK(parameter);
     CHECK(parameter->GetGUID() == CKPGUID_INT);
     const auto parameterId = parameter->GetID();
+    const auto parameterRef = document.Reference(parameterId);
     int value = 42;
     std::vector<unsigned char> bytes(sizeof(value));
     std::memcpy(bytes.data(), &value, sizeof(value));
     CHECK(SetParameterBytes(document, 0, parameterId, bytes).ok);
     CHECK(context->DestroyObject(parameterId, CK_DESTROY_NONOTIFY | CK_DESTROY_FREEID) == CK_OK);
-    auto *newParameter = new ReusedParameter(context);
-    CHECK(newParameter == parameter && newParameter->GetID() == parameterId);
-    newParameter->SetGUID(CKPGUID_INT);
+    auto *newParameter = context->CreateCKParameterOut("Identity parameter", CKPGUID_INT);
+    CHECK(newParameter && newParameter->GetID() == parameterId);
+    CHECK(document.Reference(parameterId) != parameterRef && !document.Resolve(parameterRef));
     CHECK(newParameter->GetGUID() == CKPGUID_INT);
     value = 73;
     CHECK(newParameter->SetValue(&value) == CK_OK);

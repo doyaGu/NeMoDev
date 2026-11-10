@@ -6,6 +6,7 @@
 #include "features/layout/LayoutSceneData.h"
 #include "workspace/EditorClient.h"
 #include "application/FileLoadState.h"
+#include <algorithm>
 #include <stdexcept>
 
 namespace vdev {
