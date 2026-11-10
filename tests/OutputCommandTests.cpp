@@ -245,7 +245,8 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
         const auto result = runWeb(cmo, true);
         Check(result.status == EDITOR_QUEUED && commands.Busy(), "web has no owned operation");
         runtime.Finish();
-        Check(view.last.status == EDITOR_OK && view.last.written.size() == 2 && !commands.Busy(), "web output failed");
+        Check(view.last.status == EDITOR_OK && view.last.written.size() == 2 && !commands.Busy(),
+              ("web output failed: " + view.last.message).c_str());
         Check(Bytes(fs::u8path(page)).find("<TITLE>Exported composition</TITLE>") != std::string::npos,
               "web title changed");
         Check(Bytes(fs::u8path(page)).find("WIDTH=\"640\" HEIGHT=\"480\"") != std::string::npos,

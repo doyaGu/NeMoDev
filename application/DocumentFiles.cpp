@@ -279,6 +279,7 @@ bool DocumentFiles::ExportWebPage(WebPage request, std::function<void(const WebR
                     page.close();
                     std::ifstream verify(std::filesystem::u8path(stagedPage), std::ios::binary);
                     const std::string actual{std::istreambuf_iterator<char>(verify), {}};
+                    verify.close();
                     if (!page || !verify || actual != html) report.errors.push_back("Cannot write and verify the web page");
                     else {
                         result->failure = WebResult::Failure::Publication;
