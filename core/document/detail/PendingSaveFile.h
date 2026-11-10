@@ -43,11 +43,11 @@ public:
     bool Create() {
         namespace fs = std::filesystem;
         std::error_code ec;
-        m_Destination = fs::absolute(m_Destination, ec);
+        m_Destination = FileSystemPath(fs::absolute(m_Destination, ec));
         if (ec) return Fail("Cannot resolve the output path", ec);
         // Follow an existing target link as the previous direct write did. A
         // candidate belongs beside the actual destination, on the same filesystem.
-        m_Destination = fs::weakly_canonical(m_Destination, ec);
+        m_Destination = FileSystemPath(fs::weakly_canonical(m_Destination, ec));
         if (ec) {
             m_Report.errors.push_back("Cannot resolve the output directory: " + ec.message());
             return false;
@@ -60,7 +60,8 @@ public:
                 return false;
             }
             const auto link = fs::read_symlink(m_Destination, ec);
-            if (!ec) m_Destination = fs::weakly_canonical(link.is_absolute() ? link : m_Destination.parent_path() / link, ec);
+            if (!ec) m_Destination = FileSystemPath(fs::weakly_canonical(
+                link.is_absolute() ? link : m_Destination.parent_path() / link, ec));
             if (ec) {
                 m_Report.errors.push_back("Cannot resolve the output link: " + ec.message());
                 return false;
@@ -70,7 +71,7 @@ public:
         for (int attempt = 0; attempt < 64; ++attempt) {
             std::filesystem::path name(".nemodev-save-" + std::to_string(random()) + "-" + std::to_string(random()));
             name += m_Destination.extension();
-            auto candidate = m_Destination.parent_path() / name;
+            auto candidate = FileSystemPath(m_Destination.parent_path() / name);
 #ifdef _WIN32
             HANDLE file =
                 CreateFileW(candidate.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -135,6 +136,17 @@ public:
     }
 
 private:
+    static std::filesystem::path FileSystemPath(std::filesystem::path path) {
+#ifdef _WIN32
+        // Canonicalization may remove the extended-length prefix. Keep long
+        // targets and their temporary names usable by every wide file operation.
+        const auto &native = path.native();
+        if (native.size() >= MAX_PATH && native.rfind(L"\\\\?\\", 0) != 0)
+            return native.rfind(L"\\\\", 0) == 0 ? std::filesystem::path(L"\\\\?\\UNC\\" + native.substr(2))
+                                                 : std::filesystem::path(L"\\\\?\\" + native);
+#endif
+        return path;
+    }
     std::filesystem::path m_Destination, m_Path;
     SaveReport &m_Report;
     SaveFileOperations &m_Operations;
