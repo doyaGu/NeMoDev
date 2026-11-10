@@ -220,16 +220,19 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
               "output changed document or selection");
         Check(document.History().UndoCount() == undo && document.Dirty() == dirty, "output changed history/save point");
     };
-    const auto root = fs::temp_directory_path() /
+    const auto directory = fs::temp_directory_path() /
                       ("output-command-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    Check(fs::create_directory(root), "output folder");
+    Check(fs::create_directory(directory) && fs::create_directory(directory / "files"), "output folder");
     struct Cleanup {
         fs::path root;
         ~Cleanup() {
             std::error_code e;
             fs::remove_all(root, e);
         }
-    } cleanup{root};
+    } cleanup{directory};
+    // The caller and file publication can name the same directory differently.
+    // Recovery reports must identify a usable file, independently of spelling.
+    const auto root = directory / "files" / ".." / "files";
     const auto page = (root / "page.htm").u8string();
     const auto runWeb = [&](bool cmo = false, bool preview = false, EditorView scope = 0) {
         const EditorValue values[] = {
@@ -302,8 +305,12 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
         }
         Check(!backup.empty(), "web recovery failure discarded the backup path: " + view.last.message);
         Check(Bytes(backup) == previousComposition, "web recovery backup bytes changed: " + backup.u8string());
-        Check(view.last.message.find(backup.u8string()) != std::string::npos,
-              "web recovery completion omitted " + backup.u8string() + ": " + view.last.message);
+        const std::string prefix = "Previous output saved at ";
+        const auto note = view.last.message.find(prefix);
+        Check(note != std::string::npos, "web recovery completion omitted its backup path: " + view.last.message);
+        const auto start = note + prefix.size(), end = view.last.message.find("; ", start);
+        const auto reported = fs::u8path(view.last.message.substr(start, end == std::string::npos ? end : end - start));
+        Check(fs::equivalent(reported, backup), "web recovery completion named the wrong backup: " + view.last.message);
         if (mode == WebPublication::CompetingWriter)
             Check(Bytes(fs::u8path(composition)) == std::string(fs::file_size(fs::u8path(composition)), 'C'),
                   "web rollback overwrote an outside writer");
