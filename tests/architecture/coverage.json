@@ -1213,7 +1213,8 @@
         "NeMoDevEditor",
         "NeMoDevIdentityHeaders",
         "NeMoDevNativeTaskCommand.OutputInput",
-        "NeMoDevNativeTaskCommand.ExpiredOutputInput"
+        "NeMoDevNativeTaskCommand.ExpiredOutputInput",
+        "NeMoDevEditor.OutputCommands"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu",
@@ -1235,7 +1236,8 @@
       "tests": [
         "NeMoDevEditor",
         "NeMoDevIdentityHeaders",
-        "NeMoDevNativeTaskCommand.PreparationFailure"
+        "NeMoDevNativeTaskCommand.PreparationFailure",
+        "NeMoDevEditor.OutputCommands"
       ],
       "ui_tests": [
         "VirtoolsDevUi.printCancel",

@@ -706,6 +706,13 @@ int main(int argc, char **argv) {
 #ifndef _WIN32
         Check(std::setlocale(LC_CTYPE, "") != nullptr, "native test locale");
 #endif
+        std::string selected;
+        if (argc >= 3 && std::string(argv[1]) == "--case") {
+            selected = argv[2];
+            Check(!selected.empty(), "editor regression case is empty");
+            argc -= 2;
+            argv += 2;
+        }
         Check(argc == 6, "module, environment and gesture fixture paths are required");
         Registration();
         VersionedQueries();
@@ -720,44 +727,12 @@ int main(int argc, char **argv) {
         std::string error;
         const auto *path = std::getenv("VIRTOOLS_PATH");
         Check(runtime.Start(path ? path : ".", {}, &error), error.c_str());
-        Edits(runtime, argv[1]);
-        TestDocumentCommands(runtime);
-        TestGraphFileCommands(runtime);
-        TestDocumentTransitions(runtime);
-        TestOutputCommands(runtime);
-        TestEditorTools(runtime, argv[4]);
-        TestEditorAppearance(runtime, argv[5]);
-        TestWorkspace(runtime);
-        TestWorkspacePersistence(runtime);
-        TestEventLog();
-        TestMessageCommands(runtime);
-        TestSceneCommands(runtime);
-        TestBuildingBlockQueries(runtime);
-        TestDataResources(runtime);
-        TestParameterEdits(runtime);
-        TestArrayEdits(runtime);
-        TestSetupEdits(runtime);
-        TestSchematicEdits(runtime);
-        TestGraphChangeNotifications(runtime, argv[1]);
-        TestObjectCommands(runtime, argv[1]);
-        TestResourceCommands(runtime, argv[1]);
-        TestExecutionCommands(runtime, argv[1]);
-        TestDebugFrameLifecycle(runtime);
-        TestRuntimeProjections(runtime);
-        TestEnvironmentCommands(runtime, argv[2]);
-        TestDiagnosticCommands(runtime);
-        TestPreferencesCommands(runtime);
-        TestProfileCommands(runtime);
-        TestLayoutPresentation(runtime);
-        TestLayoutViewports(runtime);
-        TestLayoutAuthoring(runtime);
-        TestCanvasCommands(runtime);
-        TestGraphEditing(runtime);
-        TestSchematicProjections(runtime);
-        TestSchematicScriptCommands(runtime);
-        TestSchematicPicking(runtime);
-        TestSchematicAuthoring(runtime, argv[3]);
-        TestGestureCommands(runtime, argv[3]);
+        bool matched = false;
+#define EDITOR_CASE(Name, Call) \
+        if (selected.empty() || selected == #Name) { std::cout << "Editor case: " #Name << std::endl; Call; matched = true; }
+#include "tests/EditorCases.def"
+#undef EDITOR_CASE
+        Check(matched, "unknown editor regression case");
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;
     } catch (const std::exception &e) {

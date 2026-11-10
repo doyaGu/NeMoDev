@@ -385,8 +385,20 @@ if(VIRTOOLSDEV_BUILD_TESTS)
         endforeach()
     endif()
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
-    add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
-    set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    set(_editor_test_modules "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>"
+            "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
+    add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests ${_editor_test_modules})
+    set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained
+            ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH};SDL_AUDIO_DRIVER=dummy")
+    set(_editor_cases "${VIRTOOLSDEV_SOURCE_DIR}/tests/EditorCases.def")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_editor_cases}")
+    file(STRINGS "${_editor_cases}" _editor_case_lines REGEX "^EDITOR_CASE\\(")
+    foreach(_line IN LISTS _editor_case_lines)
+        string(REGEX REPLACE "^EDITOR_CASE\\(([A-Za-z0-9_]+),.*$" "\\1" _case "${_line}")
+        add_test(NAME NeMoDevEditor.${_case} COMMAND NeMoDevEditorTests --case "${_case}" ${_editor_test_modules})
+        set_tests_properties(NeMoDevEditor.${_case} PROPERTIES LABELS self-contained
+                ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH};SDL_AUDIO_DRIVER=dummy")
+    endforeach()
     add_executable(NeMoDevNativeTaskCommandTests ../tests/NativeTaskCommandTests.cpp)
     add_executable(NeMoDevDocumentViewTests ../tests/DocumentViewTests.cpp native/EditorSession.cpp controls/FileDialogs.cpp)
     target_link_libraries(NeMoDevDocumentViewTests PRIVATE VirtoolsDevWorkspace NeMoDevEditorApplication
