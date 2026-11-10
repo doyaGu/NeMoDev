@@ -18,7 +18,7 @@
 
 namespace {
 using namespace vdev;
-void Check(bool condition, const char *message) {
+void Check(bool condition, const std::string &message) {
     if (!condition) throw std::runtime_error(message);
 }
 std::string Bytes(const std::filesystem::path &path) {
@@ -108,7 +108,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     namespace fs = std::filesystem;
     Document document(host);
     std::string error;
-    Check(document.New(&error), error.c_str());
+    Check(document.New(&error), error);
     bool failAfterExport = false;
     RuntimeOperation runtime({}, [&](const std::string &label, const std::function<void()> &work) {
         work();
@@ -122,13 +122,13 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     DocumentCommands commands(editor, files, runtime, [&] { return &document; }, presentation);
     owner = &commands;
     ObjectCommands objects([&] { return &document; });
-    Check(objects.Register(editor, error) && commands.Register(error) && editor.Load(modulePath, error), error.c_str());
+    Check(objects.Register(editor, error) && commands.Register(error) && editor.Load(modulePath, error), error);
     EditorConfiguration configuration;
     configuration.providers = {{"command", "object.rename", "builtin.objects"},
                                {"command", "object.create-frame3d", "builtin.objects"}};
     configuration.providers.push_back({"command", "resource.load", "builtin.documents"});
     configuration.providers.push_back({"command", "document.respond", "builtin.documents"});
-    Check(editor.Activate(EDITOR_IMGUI_VERSION, error, configuration), error.c_str());
+    Check(editor.Activate(EDITOR_IMGUI_VERSION, error, configuration), error);
     const auto attach = [&] { editor.Attach(document.Token(), document.TopologyRevision(), true, true); };
     const auto drain = [&] { editor.EndFrame(); runtime.Finish(); attach(); commands.Poll(); };
     const auto status = [&](EditorOperation operation, uint64_t *written = nullptr) {
@@ -182,7 +182,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     Check(graph.ok, "cannot create export graph");
     const auto longFolder = vdevtest::LongResourceDirectory(root);
     const auto nms = (longFolder / "scripts.nms").u8string();
-    Check(SaveBehaviorsAsNms(document, {script.created}, nms, &error), error.c_str());
+    Check(SaveBehaviorsAsNms(document, {script.created}, nms, &error), error);
     ObjectSelection selection;
     selection.Restore(document, {first.created, second.created});
     const auto selected = selection.References();

@@ -629,8 +629,12 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
     document.History().MarkSavePoint();
     const auto history = document.History().UndoCount();
     for (auto id : {"example.rename-fail", "example.rename-throw"}) {
-        const auto status = app.Execute(id, request).status;
+        const auto result = app.Execute(id, request);
+        const auto status = result.status;
         Check(status == EDITOR_REFUSED || status == EDITOR_ERROR, "failed command reported success");
+        if (std::string(id) == "example.rename-throw")
+            Check(result.message.find("Module rename failed") != std::string::npos,
+                  "command failure lost the module's diagnostic");
         Check(name() == "Second name" && document.History().UndoCount() == history && !document.EditOpen() &&
                   !document.Dirty(),
               "failed command left partial changes");

@@ -622,6 +622,9 @@ struct EditorApplication::State {
                 result.message = message->text;
                 result.fields.erase(message);
             }
+        } catch (const std::exception &error) {
+            result.status = EDITOR_ERROR;
+            result.message = "Command callback raised an exception: " + std::string(error.what());
         } catch (...) {
             result.status = EDITOR_ERROR;
             result.message = "Command callback raised an exception";

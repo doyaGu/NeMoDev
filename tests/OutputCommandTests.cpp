@@ -14,7 +14,7 @@
 
 namespace {
 using namespace vdev;
-void Check(bool value, const char *message) {
+void Check(bool value, const std::string &message) {
     if (!value) throw std::runtime_error(message);
 }
 std::string Bytes(const std::filesystem::path &path) {
@@ -170,7 +170,7 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
     namespace fs = std::filesystem;
     Document document(host);
     std::string error;
-    Check(document.New(&error), error.c_str());
+    Check(document.New(&error), error);
     const auto made = CreateLayoutObject(document, LayoutObject::Frame3D);
     Check(made.ok, "output object");
     const auto object = document.Reference(made.created);
@@ -185,7 +185,7 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
     DocumentFiles files([&] { return &document; }, runtime, observer, &publication);
     Presentation view;
     OutputCommands commands(editor, files, runtime, [&] { return &document; }, view);
-    Check(commands.Register(error), error.c_str());
+    Check(commands.Register(error), error);
     const EditorParameter outputPath{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE};
     const EditorCommandDesc throwing{
         sizeof(EditorCommandDesc),
@@ -209,7 +209,7 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
     module.id = EDITOR_TEXT("test.outputs");
     module.commands = &throwing;
     module.commandCount = 1;
-    Check(editor.Register(module, error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+    Check(editor.Register(module, error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error);
     editor.Attach(document.Token(), document.TopologyRevision(), true, true);
     editor.SetSelection(object);
     const auto token = document.Token();
@@ -300,9 +300,10 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
                 if (entry.path().filename().u8string().find(".nemodev-save-") == 0 && Bytes(entry.path()) == previousComposition)
                     backup = entry.path();
         }
-        Check(!backup.empty() && Bytes(backup) == previousComposition &&
-                  view.last.message.find(backup.u8string()) != std::string::npos,
-              "web recovery failure discarded its old composition or recovery path");
+        Check(!backup.empty(), "web recovery failure discarded the backup path: " + view.last.message);
+        Check(Bytes(backup) == previousComposition, "web recovery backup bytes changed: " + backup.u8string());
+        Check(view.last.message.find(backup.u8string()) != std::string::npos,
+              "web recovery completion omitted " + backup.u8string() + ": " + view.last.message);
         if (mode == WebPublication::CompetingWriter)
             Check(Bytes(fs::u8path(composition)) == std::string(fs::file_size(fs::u8path(composition)), 'C'),
                   "web rollback overwrote an outside writer");
