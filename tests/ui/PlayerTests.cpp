@@ -3,6 +3,7 @@
 #include "ui/render/UiRenderer.h"
 #include "core/layout/SnapshotBuffer.h"
 #include "features/layout/SnapshotData.h"
+#include "imgui_internal.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -498,6 +499,122 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(App().Layout().GpuViewportTextureForTests()->NativeTexture() == texture &&
                             App().State().document->Context()->GetObjectByHandle(camera) ==
                                 App().Layout().View().Camera());
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Close(second));
+        });
+    };
+    auto *fallback =
+        IM_REGISTER_TEST(engine, "playerfallback", "second_layout_fullscreen_fallback_resize_and_reopen");
+    fallback->GuiFunc = MainThreadGui;
+    fallback->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        Session session(ctx);
+        EditorView second = 0;
+        SDL_GPUTexture *firstTexture = nullptr;
+        CKObjectHandle firstCamera{};
+        uint64_t firstReads = 0, firstUploads = 0, firstCreations = 0;
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            const auto made = client.Command("object.create-frame3d");
+            const auto *created = vdev::EditorClient::Find(made, "created");
+            IM_CHECK_NO_RET(made.status == EDITOR_OK && created && created->object);
+            const auto selected = created->object;
+            IM_CHECK_NO_RET(client.Command("object.create-frame3d").status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("selection.replace", {vdev::ObjectsArgument("objects", {selected})}).status <=
+                            EDITOR_NO_CHANGE);
+            IM_CHECK_NO_RET(App().State().History().UndoCount() > 0 && App().State().History().CanRedo() &&
+                            !App().State().objectSelection.References().empty());
+            second = workspace.Open("layout.viewport", "test.player-fallback");
+            IM_CHECK_NO_RET(second && workspace.Focus(second));
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto *window = ImGui::FindWindowByName(App().WorkspaceForTests().WindowName(second).c_str());
+            IM_CHECK_NO_RET(window);
+            ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+            ImGui::SetWindowPos(window, {540, 90});
+            ImGui::SetWindowSize(window, {600, 440});
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto &first = App().Layout();
+            IM_CHECK_NO_RET(first.UsesGpuViewport() && App().Layout(second)->UsesGpuViewport());
+            firstTexture = first.GpuViewportTextureForTests()->NativeTexture();
+            firstCamera = App().State().document->Context()->GetObjectHandle(first.View().Camera()->GetID());
+            firstReads = first.View().ReadbackFrames();
+            firstUploads = first.ViewportUploadsForTests();
+            firstCreations = first.GpuViewportCreationsForTests();
+        });
+        const auto token = App().State().document->Token();
+        const auto history = App().State().History().UndoCount();
+        const auto redo = App().State().History().CanRedo();
+        const auto selection = App().State().objectSelection.References();
+        IM_CHECK(ChooseMode(ctx));
+        IM_CHECK(Start(ctx));
+        {
+            NativeWindowInput nativeInput(ctx);
+            AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return EditorWindow(); }));
+            IM_CHECK(Until(ctx, [&] {
+                auto *view = App().Layout(second);
+                return view && view->FullScreen() &&
+                       NativeFocus(static_cast<SDL_Window *>(view->View().RenderContext()->GetWindowHandle()));
+            }));
+            OnMainThread(ctx, [&] {
+                // Fail the first imported target after returning to the editor.
+                // The normal per-Context selection must latch CPU fallback.
+                App().Layout(second)->FailNextGpuViewportForTests();
+                const vdev::EditorClient client(App().WorkspaceForTests().Application().Host(), second);
+                IM_CHECK_NO_RET(client.Command("layout.leave-fullscreen").status == EDITOR_OK);
+            });
+            IM_CHECK(Until(ctx, [&] {
+                auto *view = App().Layout(second);
+                return view && !view->FullScreen() && !view->UsesGpuViewport() &&
+                       view->ViewportUploadsForTests() > 0 && NativeFocus(EditorWindow());
+            }));
+        }
+        uint64_t reads = 0, uploads = 0, selections = 0, creations = 0;
+        OnMainThread(ctx, [&] {
+            auto &view = *App().Layout(second);
+            reads = view.View().ReadbackFrames();
+            uploads = view.ViewportUploadsForTests();
+            selections = view.GpuViewportSelectionsForTests();
+            creations = view.GpuViewportCreationsForTests();
+            auto *window = ImGui::FindWindowByName(App().WorkspaceForTests().WindowName(second).c_str());
+            IM_CHECK_NO_RET(window);
+            ImGui::SetWindowSize(window, {640, 470});
+        });
+        ctx->Yield(8);
+        OnMainThread(ctx, [&] {
+            auto &view = *App().Layout(second);
+            IM_CHECK_NO_RET(!view.UsesGpuViewport() && view.View().ReadbackFrames() > reads &&
+                            view.ViewportUploadsForTests() > uploads &&
+                            view.GpuViewportSelectionsForTests() == selections &&
+                            view.GpuViewportCreationsForTests() == creations);
+            Image displayed;
+            IM_CHECK_NO_RET(vdev::MainRenderer().ReadFrame(displayed.pixels, displayed.width, displayed.height));
+            for (size_t at = 0; at < displayed.pixels.size(); at += 4)
+                std::swap(displayed.pixels[at], displayed.pixels[at + 2]);
+            IM_CHECK_NO_RET(SaveImage("second-layout-fallback.png", displayed));
+            auto &workspace = App().WorkspaceForTests();
+            const auto closed = second;
+            IM_CHECK_NO_RET(workspace.Close(closed));
+            const vdev::EditorClient old(workspace.Application().Host(), closed);
+            IM_CHECK_NO_RET(old.Query("layout.input").status == EDITOR_STALE);
+            second = workspace.Open("layout.viewport", "test.player-fallback");
+            IM_CHECK_NO_RET(second && second != closed && workspace.Focus(second));
+        });
+        ctx->Yield(8);
+        OnMainThread(ctx, [&] {
+            auto &first = App().Layout();
+            IM_CHECK_NO_RET(App().Layout(second)->UsesGpuViewport() && first.UsesGpuViewport() &&
+                            first.GpuViewportTextureForTests()->NativeTexture() == firstTexture &&
+                            first.GpuViewportCreationsForTests() == firstCreations &&
+                            first.View().ReadbackFrames() == firstReads && first.ViewportUploadsForTests() == firstUploads &&
+                            App().State().document->Context()->GetObjectByHandle(firstCamera) == first.View().Camera());
+            IM_CHECK_NO_RET(App().State().document->Token() == token &&
+                            App().State().History().UndoCount() == history && App().State().History().CanRedo() == redo &&
+                            App().State().objectSelection.References() == selection);
             IM_CHECK_NO_RET(App().WorkspaceForTests().Close(second));
         });
     };

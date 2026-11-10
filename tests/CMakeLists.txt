@@ -383,6 +383,11 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
         virtoolsdev_add_test(VirtoolsDevUi.player VirtoolsDevUiTests --ui-tests "^player$" --ui-show
                 --ui-results "${_dev_ui_results}/player.xml" "${_dev_ui_entities}")
         set_tests_properties(VirtoolsDevUi.player PROPERTIES RUN_SERIAL TRUE LABELS desktop TIMEOUT 180)
+        virtoolsdev_add_test(VirtoolsDevUi.PlayerFallback.second_layout_fullscreen_fallback_resize_and_reopen
+                VirtoolsDevUiTests --ui-tests "^playerfallback$" --ui-show
+                --ui-results "${_dev_ui_results}/player-fallback.xml" "${_dev_ui_entities}")
+        set_tests_properties(VirtoolsDevUi.PlayerFallback.second_layout_fullscreen_fallback_resize_and_reopen
+                PROPERTIES RUN_SERIAL TRUE LABELS desktop TIMEOUT 60)
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             set(_desktop_categories desktopfiles desktopprint)
             if(VIRTOOLSDEV_HAS_HELP)
