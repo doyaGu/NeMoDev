@@ -295,7 +295,7 @@ struct SchematicParameterDialog::Data {
             float scale, width;
             bool used = false;
         } members{this, &row, &v, at, s, width};
-        const auto draw = [](void *data, const EditorHost *host, const EditorValueInput *input) {
+        const EditorDrawMembers draw = [](void *data, const EditorHost *host, const EditorValueInput *input) {
             auto &m = *static_cast<Members *>(data);
             if (m.row->layout == "objects") {
                 ImGui::SetCursorScreenPos(m.at);

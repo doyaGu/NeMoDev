@@ -52,7 +52,7 @@ uint32_t DrawParameterDraft(ParameterCopies &copies, ObjectRef work, const Param
         {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(cid)},
         {EDITOR_TEXT("derived"), EDITOR_INTEGER_VALUE, {}, {}, derived ? 1u : 2u},
         {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, {}, EditorText(filter)}};
-    const auto draw = [](void *data, const EditorHost *host, const EditorValueInput *input) {
+    const EditorDrawMembers draw = [](void *data, const EditorHost *host, const EditorValueInput *input) {
         auto &draft = *static_cast<Draft *>(data);
         draft.drawingMembers = draft.usedMembers = true;
         const auto action = draft.members(draft.membersData, host, input);

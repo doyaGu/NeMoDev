@@ -1,5 +1,6 @@
 #include "editor/Editor.h"
 #include <array>
+#include <cstddef>
 
 namespace {
 const EditorString builtin[] = {{}};
@@ -35,7 +36,7 @@ EditorImageDesc image;
 extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const EditorHost *host,
                                                                        EditorModuleDesc *module) {
     if (!host || host->version != EDITOR_VERSION || !module || module->size != sizeof(*module)) return EDITOR_INVALID;
-    for (size_t i = 0; i < pixels.size(); i += 4) {
+    for (std::size_t i = 0; i < pixels.size(); i += 4) {
         pixels[i] = 201;
         pixels[i + 1] = 37;
         pixels[i + 2] = 175;

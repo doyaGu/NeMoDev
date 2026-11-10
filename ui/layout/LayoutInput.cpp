@@ -247,7 +247,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     }
     if (Window().selecting) {
 #ifdef _WIN32
-        const float drag = std::max(1.0f, static_cast<float>(GetSystemMetrics(SM_CXDRAG)));
+        const float drag = (std::max)(1.0f, static_cast<float>(GetSystemMetrics(SM_CXDRAG)));
 #else
         const float drag = std::max(1.0f, io.MouseDragThreshold);
 #endif

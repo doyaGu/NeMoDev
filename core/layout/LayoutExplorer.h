@@ -1,6 +1,7 @@
 #pragma once
 #include "core/layout/LayoutExplorerTypes.h"
 
+#include <string>
 #include <utility>
 #include <vector>
 

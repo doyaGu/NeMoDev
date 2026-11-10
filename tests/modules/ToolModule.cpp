@@ -156,7 +156,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         EditorToolbarItemDesc button;
         EditorBindingDesc binding;
     };
-    auto *owned = new Owned{module, {tools[0], tools[1]}, command, mode, button, binding};
+    auto *owned = new Owned{module, {}, command, mode, button, binding};
+    owned->tools[0] = tools[0];
+    owned->tools[1] = tools[1];
     owned->command.parameters = &owned->mode;
     out->tools = owned->tools;
     out->commands = &owned->command;
