@@ -104,9 +104,9 @@ int main(int argc, char **argv) {
               discovered.size() == 2 && discovered.front().name == before, "missing required directory changed the result");
         Check(!vdev::DiscoverEditorModules({}, {(root / "missing-file").u8string()}, discovered, error) &&
               discovered.size() == 2, "missing explicit file changed the result");
-        Check(vdev::EditorModuleDirectoryAt((root / "Bin").u8string()) == (root / "Bin/modules").u8string(), "flat module layout");
+        Check(fs::u8path(vdev::EditorModuleDirectoryAt((root / "Bin").u8string())) == root / "Bin/modules", "flat module layout");
         for (const auto &path : {root / "Moved App.app", root / "Moved App.app/Contents/MacOS", root / "Moved App.app/Contents/Resources"})
-            Check(vdev::EditorModuleDirectoryAt(path.u8string()) == (root / "Moved App.app/Contents/PlugIns/EditorModules").u8string(),
+            Check(fs::u8path(vdev::EditorModuleDirectoryAt(path.u8string())) == root / "Moved App.app/Contents/PlugIns/EditorModules",
                   "relocated app module layout");
 
         const auto log = root / "lifecycle.txt";

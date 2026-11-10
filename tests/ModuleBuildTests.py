@@ -45,10 +45,10 @@ endif()
 
         for invalid in ("sources", "host", "argument"):
             run(invalid, args.cmake, "-S", str(source), "-B", str(root / invalid),
-                "-DNEMODEV_SOURCE=" + str(args.source), "-DINVALID=" + invalid, ok=False)
+                "-DNEMODEV_SOURCE=" + args.source.as_posix(), "-DINVALID=" + invalid, ok=False)
         build = root / "build"
         run("configure", args.cmake, "-S", str(source), "-B", str(build),
-            "-DNEMODEV_SOURCE=" + str(args.source), "-DCMAKE_BUILD_TYPE=Release")
+            "-DNEMODEV_SOURCE=" + args.source.as_posix(), "-DCMAKE_BUILD_TYPE=Release")
         run("build", args.cmake, "--build", str(build), "--config", "Release", "--parallel", "2")
         installed = root / "Installed Package"
         run("install", args.cmake, "--install", str(build), "--prefix", str(installed),

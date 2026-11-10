@@ -37,7 +37,8 @@ int main() {
         Check(profile.Contributions().toolbarItems.empty(), "disabled module toolbar override was applied");
         Check(profile.Contributions().providers.empty(), "disabled module provider was applied");
         Check(profile.Contributions().bindings.empty() && profile.Contributions().menus.empty(), "disabled module input overrides were applied");
-        Check(profile.ResolvedModules().front().path == (canonicalRoot / "module files/viewer.dylib").u8string(), "relative module path did not use the profile directory");
+        Check(std::filesystem::u8path(profile.ResolvedModules().front().path) == canonicalRoot / "module files/viewer.dylib",
+              "relative module path did not use the profile directory");
         Check(profile.Capture(preferences, {}, {}, [](const auto &) { return std::string{}; }, error), error);
         auto text = Encoded(profile);
         for (const auto *kept : {"1234567890123456789", "unknown.module.setting", "module data", "provider data",
