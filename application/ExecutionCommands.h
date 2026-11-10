@@ -8,7 +8,7 @@ namespace vdev {
 class Document;
 class Debugger;
 class DocumentFiles;
-class Preferences;
+struct Preferences;
 
 // Owns execution for the editing document. Native work remains on the current
 // execution thread; file workers and open edits exclude these commands.

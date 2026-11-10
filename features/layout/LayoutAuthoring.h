@@ -6,7 +6,7 @@
 namespace vdev {
 class LayoutView;
 class ObjectSelection;
-class Preferences;
+struct Preferences;
 class SchematicNavigation;
 
 // Creation settings, drop receivers and the pending behavior's parameter edit.

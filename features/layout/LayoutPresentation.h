@@ -6,7 +6,7 @@ namespace vdev {
 class LayoutView;
 class LayoutViewport;
 class ObjectSelection;
-class Preferences;
+struct Preferences;
 // Player display settings, composition changes and fullscreen commands share
 // the same owner. Views receive copied state and cannot change CK objects.
 class LayoutPresentation {

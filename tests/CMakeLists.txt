@@ -66,9 +66,13 @@ add_test(NAME NeMoDevArchitectureChecker COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ArchitectureTests.py")
 add_test(NAME NeMoDevViewportMeasurement COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ViewportMeasurementTests.py")
-add_executable(NeMoDevIdentityHeaderTests IdentityHeaderTests.cpp IdentityHeaderC.c SchematicHeaderTests.cpp)
+add_executable(NeMoDevIdentityHeaderTests IdentityHeaderTests.cpp IdentityHeaderC.c SchematicHeaderTests.cpp
+        PreferencesHeaderTests.cpp)
 target_include_directories(NeMoDevIdentityHeaderTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevIdentityHeaderTests PRIVATE c_std_11 cxx_std_17)
+target_compile_options(NeMoDevIdentityHeaderTests PRIVATE
+        "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/we4099>"
+        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Werror=mismatched-tags>")
 add_test(NAME NeMoDevIdentityHeaders COMMAND NeMoDevIdentityHeaderTests)
 # Compile the actual Schematic painter with only copied data and ImGui headers.
 # No CK, SDK or runtime include directories/libraries are available here.
