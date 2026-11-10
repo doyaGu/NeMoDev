@@ -87,10 +87,19 @@ int AddFolderPaths(CKPathManager *paths, const DataResourceFolder &folder) {
         int category = 1;
         if (folder.cid == CKCID_SOUND || folder.cid == CKCID_WAVESOUND || folder.cid == CKCID_MIDISOUND) category = 2;
         else if (folder.cid == CKCID_SPRITE || folder.cid == CKCID_TEXTURE || folder.cid == CKCID_SPRITE3D) category = 0;
-        XString path(const_cast<CKSTRING>(fs::u8path(folder.path).string().c_str()));
-        if (category < paths->GetCategoryCount() && paths->GetPathIndex(category, path) < 0 &&
-            paths->AddPath(category, path) >= 0)
-            ++added;
+        std::string native = folder.path;
+#ifdef _WIN32
+        // Browsing uses UTF-8. Only representable paths may enter the SDK's
+        // native search list; never replace characters or fail the whole view.
+        try { native = Utf8ToAnsi(folder.path); }
+        catch (const TextEncodingError &) { native.clear(); }
+#endif
+        if (!native.empty()) {
+            XString path(native.c_str());
+            if (category < paths->GetCategoryCount() && paths->GetPathIndex(category, path) < 0 &&
+                paths->AddPath(category, path) >= 0)
+                ++added;
+        }
     }
     for (const auto &child : folder.folders) added += AddFolderPaths(paths, child);
     return added;
@@ -231,6 +240,14 @@ bool ReadDataResource(const std::string &file, DataResource &resource, std::stri
 
 int AddDataResourcePaths(CKContext *context, const DataResource &resource) {
     CKPathManager *paths = context ? context->GetPathManager() : nullptr;
+#ifdef _WIN32
+    // Every child shares this prefix. One rejected conversion is enough;
+    // keep browsing available without registering damaged native paths.
+    if (paths) {
+        try { (void)Utf8ToAnsi(resource.root.path); }
+        catch (const TextEncodingError &) { return 0; }
+    }
+#endif
     return paths ? AddFolderPaths(paths, resource.root) : 0;
 }
 

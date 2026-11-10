@@ -3,6 +3,7 @@
 #include "core/document/ToolCommands.h"
 #include "core/level/LevelCommands.h"
 #include "core/document/SaveFileOperations.h"
+#include "core/runtime/TextEncoding.h"
 #include "editor/ImGuiDrawing.h"
 #include "features/resources/DataResourceCommands.h"
 #include "features/resources/DataResourceViews.h"
@@ -16,7 +17,7 @@
 #include <thread>
 
 namespace {
-void Check(bool ok, const char *message) {
+void Check(bool ok, const std::string &message) {
     if (!ok)
         throw std::runtime_error(message);
 }
@@ -37,7 +38,7 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     namespace fs = std::filesystem;
     Document document(runtime);
     std::string error;
-    Check(document.New(&error), error.c_str());
+    Check(document.New(&error), error);
     const auto made = CreateLayoutObject(document, LayoutObject::Frame3D);
     Check(made.ok && RenameLevelObject(document, document.Reference(made.created), "Resource tests").ok,
           "prepare resource test history");
@@ -51,8 +52,8 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     EditorWorkspace workspace(editor);
     DataResourceCommands resources(editor, operations, runtime);
     Check(workspace.Register(error) && resources.Register(error) && RegisterDataResourceViews(editor, error),
-          error.c_str());
-    Check(editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+          error);
+    Check(editor.Activate(EDITOR_IMGUI_VERSION, error), error);
     editor.Attach(token, topology, true, true);
     const auto selectedObject = document.Reference(made.created);
     editor.SetSelection(selectedObject);
@@ -71,7 +72,7 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
         }
     } creation;
     const auto existing = (root / "retained.rsc").u8string();
-    Check(CreateDataResource(existing, &error), error.c_str());
+    Check(CreateDataResource(existing, &error), error);
     const auto retained = root / "retained";
     { std::ofstream keep(retained / "Keep.txt"); keep << "Existing resource data"; }
     std::map<fs::path, std::string> previousResourceFiles;
@@ -90,9 +91,31 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     }
     for (const auto &entry : fs::recursive_directory_iterator(root))
         Check(entry.path().filename().u8string().find(".nemodev-save-") != 0, "resource creation leaked a temporary file");
-    const auto library = (root / fs::u8path("素材.rsc")).u8string();
-    Check(CreateDataResource(library, &error), error.c_str());
-    const auto folder = (root / fs::u8path("素材/Behavior Graphs")).u8string();
+    const auto unicodeLibrary = (root / fs::u8path(u8"素材.rsc")).u8string();
+    Check(CreateDataResource(unicodeLibrary, &error), error);
+    DataResource unicode;
+    Check(ReadDataResource(unicodeLibrary, unicode, &error) && unicode.root.name == u8"素材", error);
+    bool nativeUnicode = true;
+#ifdef _WIN32
+    try { (void)Utf8ToAnsi(u8"素材"); }
+    catch (const TextEncodingError &) { nativeUnicode = false; }
+#endif
+    auto *paths = document.Context()->GetPathManager();
+    std::vector<int> pathCounts;
+    for (int i = 0; i < paths->GetCategoryCount(); ++i) pathCounts.push_back(paths->GetPathCount(i));
+    const auto unicodePaths = AddDataResourcePaths(document.Context(), unicode);
+    Check(nativeUnicode ? unicodePaths > 0 : unicodePaths == 0, "native resource path encoding was not respected");
+    for (int i = 0; i < int(pathCounts.size()); ++i) {
+        if (!nativeUnicode) Check(paths->GetPathCount(i) == pathCounts[i], "unrepresentable paths changed the SDK search list");
+        while (paths->GetPathCount(i) > pathCounts[i])
+            Check(paths->RemovePath(i, paths->GetPathCount(i) - 1) == CK_OK, "restore native resource paths");
+    }
+    // Native SDK file operations keep the system encoding. The independent
+    // UTF-8 scan above covers names outside that encoding without changing it.
+    const std::string libraryStem = nativeUnicode ? u8"素材" : "resources";
+    const auto library = (root / fs::u8path(libraryStem + ".rsc")).u8string();
+    Check(CreateDataResource(library, &error), error);
+    const auto folder = (root / fs::u8path(libraryStem) / "Behavior Graphs").u8string();
     for (int i = 0; i < 141; ++i) {
         std::ofstream(fs::u8path(folder) / ("Graph" + std::to_string(i) + ".nms")) << "fixture";
     }
@@ -117,6 +140,20 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
         Check(result.status != EDITOR_QUEUED, "resource scan did not complete");
         return result;
     };
+    if (!nativeUnicode) {
+        const auto shown = finish(client.Command("resource.open-library", {TextArgument("path", unicodeLibrary)}));
+        const auto view = EditorClient::Integer(shown, "view");
+        Check(shown.status == EDITOR_OK && view && workspace.ViewCount() == 1,
+              "UTF-8 library browsing depended on the SDK character set: " + shown.message);
+        Check(EditorClient::Text(client.Inspect(view), "library") == unicodeLibrary,
+              "UTF-8 library navigation changed its path");
+        for (int i = 0; i < int(pathCounts.size()); ++i)
+            Check(paths->GetPathCount(i) == pathCounts[i], "browsing registered an unrepresentable SDK path");
+        Check(workspace.Close(view), "close UTF-8 resource view");
+        resources.Poll();
+        changes = 0;
+        notices.clear();
+    }
     const auto scanning = client.Command("resource.open-library", {TextArgument("path", library)});
     Check(scanning.status == EDITOR_QUEUED && operations.Available() && workspace.ViewCount() == 0,
           "directory scanning blocked the caller or native rendering");
@@ -270,14 +307,14 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
               client.Query("resource.input").status == EDITOR_NO_CHANGE,
           "closed view retained resource input");
     const auto cancelledPath = (root / "Cancelled.rsc").u8string();
-    Check(CreateDataResource(cancelledPath, &error), error.c_str());
+    Check(CreateDataResource(cancelledPath, &error), error);
     const auto scanOwner = workspace.Open("resource.data");
     const auto cancelled = EditorClient(editor.Host(), scanOwner).Command("resource.open-library", {TextArgument("path", cancelledPath)});
     Check(cancelled.status == EDITOR_QUEUED && workspace.Close(scanOwner), "prepare scan owner closure");
     Check(finish(cancelled).status == EDITOR_CANCELLED && workspace.ViewCount() == 2 &&
           client.Query("resource.library", {TextArgument("path", cancelledPath)}).status == EDITOR_STALE,
           "closed view published a background resource scan");
-    const auto originalRoot = root / fs::u8path("素材");
+    const auto originalRoot = root / fs::u8path(libraryStem);
     fs::rename(originalRoot, root / "temporarily-missing");
     Check(finish(client.Command("resource.refresh-library", {TextArgument("path", library)})).status == EDITOR_ERROR &&
               page(0).status == EDITOR_OK,
