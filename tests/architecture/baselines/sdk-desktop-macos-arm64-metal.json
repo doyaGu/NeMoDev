@@ -1,0 +1,280 @@
+{
+  "description": "新 SDK 下 macOS 原生 UI、Player 与双 3D Layout 桌面复验，修复两处测试夹具内存错误并新增独立回归。",
+  "base_revision": "59bd6cea44508977de30fd18f698195a8614a4a6",
+  "recorded_utc": "2026-11-10T06:45:50.909053+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "sdk_revision": "ac8e25f2263a523376c43e99148a422b2fc0be65",
+    "sdl_version": "3.4.20",
+    "module_interface": 28,
+    "native_desktop": true
+  },
+  "changes": [
+    "Grid 大尺寸夹具在添加层前确定尺寸，避免将 100 格数组按 256×256 读取；检查全部 65536 格并保留原取消和 Undo/Redo 断言。",
+    "保存回归使用独立持有的原子开关，清理不再访问已随 Context 销毁的 Manager；显式核对旧 Manager 已释放。",
+    "独立桌面回归覆盖第二视口退出全屏时导入失败、固定 CPU fallback、resize、关闭重开与 GPU 恢复；非空选区和 Undo/Redo 历史、首视口纹理及相机保持。",
+    "外观启动驱动在子进程失败时报告退出码和 XML 是否生成；保留原 45 秒上限。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/sdk-desktop-20261110/build-save-callback.log",
+      "sha256": "d85f866f813938a7f2ff8657ae9bd31efc82bf52eb7c43fd9e26d6c5d233b9d0"
+    },
+    "combined": {
+      "selected": 341,
+      "passed": 341,
+      "failed": 0,
+      "skipped": 0,
+      "batched": true,
+      "inventory": {
+        "path": "out/sdk-desktop-20261110/complete-inventory.json",
+        "sha256": "a33de34e9bc0559f17edc4072a02af929258387e394c12c561982c562b76cd0e"
+      },
+      "check": {
+        "path": "out/sdk-desktop-20261110/combined-check.json",
+        "sha256": "c0689813278f6637233b983fc8eba1c2ab8dda8448bb497553107fb24ab7726a"
+      }
+    },
+    "non_ui": {
+      "selected": 249,
+      "passed": 249,
+      "failed": 0,
+      "skipped": 0,
+      "raw_report": {
+        "path": "out/sdk-desktop-20261110/full-before-shutdown-fix.xml",
+        "sha256": "913876de1d2ae7491180f230583e0fe7ead1980efefddabd898a572c4ccdffb1"
+      },
+      "inventory": {
+        "path": "out/sdk-desktop-20261110/non-ui-inventory.json",
+        "sha256": "5d8591cf52e1b4fedf72d35f78b3c51fe245c2a7fff455620d9a77a861e62b6a"
+      },
+      "check": {
+        "path": "out/sdk-desktop-20261110/non-ui-check.json",
+        "sha256": "0ab0e4eed4676834ec9999cbbf9d9ab6169d98f07a528251dee6e79546bcf89e"
+      },
+      "description": "同一 SDK 和运行库下原始完整运行的非 UI 项全部通过；该原始运行中的文件菜单 UI 退出失败保持原记录。"
+    },
+    "native_ui": {
+      "selected": 92,
+      "passed": 92,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/sdk-desktop-20261110/ui-final.xml",
+        "sha256": "6e789d0119c8111831b2240b7042858f41b5a538028d8f9231b6cc4f29bd8367"
+      },
+      "inventory": {
+        "path": "out/sdk-desktop-20261110/ui-final-inventory.json",
+        "sha256": "76a3f3e14cde535e2a5e89e17413105ddf0128003d8925aaa43b3f1d9e1da27e"
+      },
+      "log": {
+        "path": "out/sdk-desktop-20261110/ui-final.log",
+        "sha256": "5646d0be9c8b6e0a489bd325d04b2f37f9bf1b1352e6ff4222f28617beb7527f"
+      },
+      "check": {
+        "path": "out/sdk-desktop-20261110/ui-final-check.log",
+        "sha256": "80b1457807e6ec20a7eb234ee611d89626e3d997034a8bf732447a36a6d34958"
+      }
+    },
+    "native_player": {
+      "selected": 8,
+      "passed": 8,
+      "cases": [
+        "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground",
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel",
+        "second_layout_fullscreen_fallback_resize_and_reopen"
+      ],
+      "reports": [
+        {
+          "path": "out/sdk-desktop-20261110/reports/player.xml",
+          "sha256": "8f2a75f44278f2e4a930be0398a79c47f8342d0df70811217108b647778c86f3"
+        },
+        {
+          "path": "out/sdk-desktop-20261110/reports/player-fallback.xml",
+          "sha256": "c328a419ff49cf553761f9aaddfe6b5b961bde78ed435bc440bf2f499afef9aa"
+        }
+      ]
+    },
+    "filemenu_repeated": {
+      "repetitions": 3,
+      "selected_each": 2,
+      "passed_executions": 6,
+      "report": {
+        "path": "out/sdk-desktop-20261110/filemenu-lifetime-final.xml",
+        "sha256": "24aa76bd65068e012d70aa15ff95d1490441b5c4907f2a010517e0f2ea91c302"
+      },
+      "log": {
+        "path": "out/sdk-desktop-20261110/filemenu-lifetime-final.log",
+        "sha256": "af871eebda21c879a9a69c18c4f2f2259ddb3d23bb4f79f587e28766c9d4f5ea"
+      }
+    },
+    "independent_cases": [
+      "VirtoolsDevUi.SetupGrid.large_grid_layers_have_matching_cells",
+      "VirtoolsDevUi.FileMenu.save_callback_document_replacement_releases_manager",
+      "VirtoolsDevUi.PlayerFallback.second_layout_fullscreen_fallback_resize_and_reopen"
+    ],
+    "images": [
+      {
+        "path": "out/sdk-desktop-20261110/images/fullscreen-after-input.png",
+        "sha256": "b449607ec7acf0bb67389402a5f514bab13ac0d44eb181e8d887dffba3c450ce"
+      },
+      {
+        "path": "out/sdk-desktop-20261110/images/fullscreen.png",
+        "sha256": "b44992f32c45e5208137730c30db5b5d91f1c61ff43d5f97ed1aef9e3bf4cf56"
+      },
+      {
+        "path": "out/sdk-desktop-20261110/images/second-layout-fallback.png",
+        "sha256": "bb2c5cab797a8c6ac163bd0a9b1702698b0a70c63a9c0fad82f83ce5f2cdc895"
+      },
+      {
+        "path": "out/sdk-desktop-20261110/images/snapshot-capture.png",
+        "sha256": "7eba735222ca3a986924788cfad58cc5f397733bb7df8c31415e4b0c506667e6"
+      },
+      {
+        "path": "out/sdk-desktop-20261110/images/snapshot-take.png",
+        "sha256": "cd96932c9106dc26b121b5511108cdf82c09ade79fe57bd4194abecd72b98322"
+      },
+      {
+        "path": "out/sdk-desktop-20261110/images/windowed.png",
+        "sha256": "fcea76e3d35575f77f6b773ca009cf7976d167b592d73e074157a8a52f10fa18"
+      }
+    ],
+    "architecture": {
+      "files": 1204,
+      "groups": 59,
+      "features": 32,
+      "states": 51,
+      "legacy_exposures": 0,
+      "native_hosts": 6,
+      "native_adapters": 5,
+      "value_header_users": 6,
+      "completed_phase": 3,
+      "functional_phase": 5,
+      "test_registration_checked": true,
+      "open_gaps": 6,
+      "separate_work": 1
+    },
+    "architecture_report": {
+      "path": "out/sdk-desktop-20261110/architecture-final.json",
+      "sha256": "401a1e3c093e155b8d93b01ee470d4e8379f49a8e00e26e51e1d51563f1a6b50"
+    },
+    "final_checks": {
+      "selected": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "cases": [
+        "NeMoDevProductionIsolation",
+        "NeMoDevArchitectureChecker",
+        "NeMoDevArchitecture",
+        "VirtoolsDevLayering"
+      ],
+      "report": {
+        "path": "out/sdk-desktop-20261110/checks-final.xml",
+        "sha256": "095ecf7995d3b61dbfa61bb3b8b70c756540fc01a86fdedfe60b0e6f9ed1cc01"
+      },
+      "log": {
+        "path": "out/sdk-desktop-20261110/checks-final.log",
+        "sha256": "80e3a9e03dd892491f584b589ca5e1cef4e3986353d8ed02fecdbc0685334815"
+      }
+    }
+  },
+  "diagnosis": {
+    "grid": {
+      "first_ui_selected": 88,
+      "first_ui_passed": 87,
+      "first_failure": "SIGBUS in RCKLayer::GetValue2 after the fixture directly enlarged an existing grid without recreating its layers.",
+      "first_log": {
+        "path": "out/sdk-desktop-20261110/ui-first.log",
+        "sha256": "3b4bce32db7c47ef9874a497db170901701fbc4b9a6c47ae0797ed146e34e996"
+      },
+      "crash": {
+        "path": "out/sdk-desktop-20261110/appearance-crash-first.ips",
+        "sha256": "114d874747831b2ac38130183fc9fd25b9016e4a9466e92170ba055b7608684c"
+      },
+      "single_old_fixture": "单独运行曾碰巧通过，仍保留首次完整外观进程的崩溃；未把偶尔通过当作修复。"
+    },
+    "save_callback": {
+      "first_full_selected": 340,
+      "first_full_passed": 339,
+      "first_failure": "退出时崩溃于 SDL Metal 或 Cocoa 回收；保存回归清理仍写已被 Context 销毁的 Manager，造成释放后写。",
+      "first_full_log": {
+        "path": "out/sdk-desktop-20261110/full-before-shutdown-fix.log",
+        "sha256": "74f90c339e4aa9e7bdb4f314ee2eb6dbf49605601b732e9e52962eef75c2b2c0"
+      },
+      "crash": {
+        "path": "out/sdk-desktop-20261110/filemenu-crash-first.ips",
+        "sha256": "d7d85ac1304f2b3476705b00e965511031c5b56c6c12666d38ce063d338dc744"
+      },
+      "resource_trace": "临时 GPU 入口跟踪覆盖创建、释放和窗口回收；未发现重复资源释放。探针源码及库留在 out/sdk-desktop-20261110/diagnostics，不进入产品。",
+      "probe_results": {
+        "path": "out/sdk-desktop-20261110/filemenu-trace-results.json",
+        "sha256": "8399132785f43a1b8474281c64b9c86911b511db47f2a16ac40d80346d2dfd8a"
+      },
+      "guard_malloc": "系统 Guard Malloc 改变了异步保存的执行节奏，保存报告等待断言失败；保留日志，不计入通过结果。"
+    }
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 18,
+    "sdk_before": {
+      "path": "out/sdk-desktop-20261110/sdk-before.json",
+      "sha256": "29163c5eb2232329566838f70c0c2fc0ef6aea1b24613de65b4300f0e4c5cb61"
+    },
+    "sdk_after": {
+      "path": "out/sdk-desktop-20261110/sdk-final.json",
+      "sha256": "29163c5eb2232329566838f70c0c2fc0ef6aea1b24613de65b4300f0e4c5cb61"
+    },
+    "runtime_files_unchanged": 42,
+    "runtime_before": {
+      "path": "out/sdk-desktop-20261110/runtime-before.json",
+      "sha256": "018e2ef60155ab65cd7418f3fd03c0285bb01bd38fe3e70a7c85527af52a6880"
+    },
+    "runtime_after": {
+      "path": "out/sdk-desktop-20261110/runtime-final.json",
+      "sha256": "018e2ef60155ab65cd7418f3fd03c0285bb01bd38fe3e70a7c85527af52a6880"
+    },
+    "gpu_and_fallback_sources": {
+      "ui/native/LayoutRenderer.cpp": {
+        "sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      }
+    },
+    "production_sources_changed": false,
+    "file_format_changed": false
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "timing_measured": false,
+    "thresholds_changed": false,
+    "description": "本轮不进行性能计时；后续参考与当前构建须使用相同 SDK/SDL 版本及原定 3% 门槛。"
+  },
+  "remaining": [
+    "Windows/Linux 原生桌面、字体及 DPI 实机复验。",
+    "发布包、真实打印和原版帮助全书保持原清单。",
+    "运行时进程隔离单独实施。"
+  ]
+}

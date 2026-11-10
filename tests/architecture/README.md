@@ -2504,3 +2504,13 @@ Schematic、3D Layout 和图查询模块通过相同通知处理成功加载；�
 独立用例覆盖实际打开、Import/Merge、NMO、空 Script、保存布局中的对象引用重映射、提供者替换、完成前替换提供者、完成前切换文档、通知异常、失败保留原状态、内置/外部模块禁用及保存报告。新增外部模块只使用公共 Editor 头。公开接口版本为 28，消费头仍无 STL、SDK 或 SDL 类型；CK SDK 和文件格式不变。
 
 本轮不操作桌面输入，不运行可见 Player 或焦点测试；桌面 UI 验收与性能计时等待空闲窗口，进程隔离单独实施。结果见 [文件完成呈现验证记录](baselines/file-presentation-macos-arm64-metal.json)。
+
+## 新 SDK 下的原生 UI、Player 和双视口复验
+
+使用 SDK `ac8e25f`、SDL `3.4.20` 和 macOS arm64 Release 完成复验。最终原生 UI **92/92** 通过，无失败或跳过，包含原有七个 Player 桌面场景和新增的双视口全屏故障恢复场景。非 UI **249/249** 在同一 SDK 和运行库下通过；两批结果与最终 **341** 个登记项逐项核对。原始完整运行曾因文件菜单退出崩溃而失败，保留该报告，不将它记为整轮通过。
+
+发现并修正两处测试夹具内存错误。Grid 布局测试直接扩大已有网格，却继续读取原层数组；现先设置独立大网格的尺寸，再添加层，核对全部 65536 格，原有笔画取消和 Undo/Redo 断言保留。保存回归在新建文档后清理旧 Manager 指针，可能破坏随后复用的 SDL 或 Cocoa 对象；现独立持有原子开关，确认 Context 已销毁 Manager 后仍能安全清理。文件菜单组和独立生命周期用例分别连续三次通过。临时资源入口跟踪没有发现重复释放，探针保存在本地诊断目录，不进入产品。
+
+新增三个独立 CTest：`VirtoolsDevUi.SetupGrid.large_grid_layers_have_matching_cells`、`VirtoolsDevUi.FileMenu.save_callback_document_replacement_releases_manager` 和 `VirtoolsDevUi.PlayerFallback.second_layout_fullscreen_fallback_resize_and_reopen`。最后一项只在启用桌面测试时登记；它使用真实的非空选区、Undo 和 Redo 历史，检查第二视口退出全屏时导入失败后的固定 fallback、resize、旧视图编号失效及关闭重开后的 GPU 恢复，首视口保留原纹理、相机和零读回上传。快照和全屏画面另有保存与检查。
+
+18 个 SDK 仓库及 42 项运行文件在复验前后保持一致；生产源码、五份 GPU 渲染和互操作实现、公开接口及文件格式未改。外观启动驱动仅增加退出码和报告是否生成的错误信息，原有 45 秒进程上限保留。结果、失败日志、崩溃栈、图像与校验值见 [SDK 桌面复验记录](baselines/sdk-desktop-macos-arm64-metal.json)。Windows/Linux、发布产物、真实打印及原版帮助仍待各自验收；性能计时等待空闲窗口，原定门槛不变，进程隔离单独实施，完成阶段不提前推进。
