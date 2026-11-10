@@ -498,11 +498,13 @@ if(VIRTOOLSDEV_BUILD_TESTS)
         nemodev_add_module(NeMoDevViewRoutingModule HOST VirtoolsDevUiTests SOURCES ../tests/modules/ViewRoutingModule.cpp)
         target_include_directories(NeMoDevViewRoutingModule PRIVATE "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine")
         target_compile_definitions(NeMoDevViewRoutingModule PRIVATE IMGUI_USER_CONFIG="imgui_te_imconfig.h")
-        add_test(NAME VirtoolsDevUi.modules COMMAND VirtoolsDevUiTests --ui-tests "^modules$"
-                --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
-                --editor-module-dir "$<TARGET_FILE_DIR:NeMoDevUiDocumentInfo>"
-                --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/modules.xml")
-        set_tests_properties(VirtoolsDevUi.modules PROPERTIES LABELS self-contained)
+        foreach(_category modules valueedits arrayedits workspaceedits)
+            add_test(NAME VirtoolsDevUi.${_category} COMMAND VirtoolsDevUiTests --ui-tests "^${_category}$"
+                    --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
+                    --editor-module-dir "$<TARGET_FILE_DIR:NeMoDevUiDocumentInfo>"
+                    --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/${_category}.xml")
+            set_tests_properties(VirtoolsDevUi.${_category} PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 180)
+        endforeach()
         foreach(_case schematic_replaced_view_receives_script_show layout_foreign_source_keeps_active_camera
                 schematic_replaced_instances_keep_navigation_targets layout_replaced_instances_use_selected_command_provider
                 schematic_replaced_view_receives_parameter_navigation layout_invalid_sources_cannot_query_edit_or_capture
@@ -548,8 +550,20 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
                 --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevAppearanceModule>"
                 --help-dir "${_runtime_data}/help"
+                --startup-only
                 --results "${PROJECT_BINARY_DIR}/appearance-startup")
         set_tests_properties(VirtoolsDevUi.appearance PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
+        foreach(_category appearance appearancespecialized appearanceparameters appearancebehaviors
+                appearancesyncstate appearancevaluedialogs appearanceschematicdialogs appearancesetupdialogs
+                appearancegraphdialogs appearancebreakpointdialogs appearanceapplicationdialogs appearanceoutputdialogs)
+            add_test(NAME VirtoolsDevUi.AppearanceEditing.${_category} COMMAND ${Python3_EXECUTABLE}
+                    "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
+                    --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevAppearanceModule>"
+                    --help-dir "${_runtime_data}/help" --edit-category "${_category}"
+                    --results "${PROJECT_BINARY_DIR}/appearance-${_category}")
+            set_tests_properties(VirtoolsDevUi.AppearanceEditing.${_category}
+                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 180)
+        endforeach()
         add_test(NAME VirtoolsDevUi.moduleStartup COMMAND ${Python3_EXECUTABLE}
                 "${VIRTOOLSDEV_SOURCE_DIR}/tests/ModuleStartupTests.py"
                 --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevUiDocumentInfo>"

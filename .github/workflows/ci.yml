@@ -324,6 +324,7 @@ jobs:
             out/ballanced-revision.txt
             out/${{ matrix.preset }}/Testing/Temporary/
             out/${{ matrix.preset }}/virtoolsdev-ui/*.xml
+            out/${{ matrix.preset }}/appearance-*/
             out/${{ matrix.preset }}/CMakeFiles/CMakeConfigureLog.yaml
           retention-days: 14
           overwrite: true

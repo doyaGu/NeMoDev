@@ -436,7 +436,7 @@ void SelectorLayout(ImGuiTestContext *ctx, size_t index) {
 }
 } // namespace
 void RegisterValueEditTests(ImGuiTestEngine *engine) {
-    auto *test = IM_REGISTER_TEST(engine, "modules", "primitive_parameter_dialog_one_undo_and_cancel");
+    auto *test = IM_REGISTER_TEST(engine, "valueedits", "primitive_parameter_dialog_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -489,7 +489,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 0 && IntegerValue(ctx, editing.parameters[2]) == 0 && IntegerValue(ctx, editing.parameters[3]) == 2);
         IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "parameter_batch_failure_preserves_history_and_values");
+    test = IM_REGISTER_TEST(engine, "valueedits", "parameter_batch_failure_preserves_history_and_values");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -518,7 +518,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET((&App().WorkspaceForTests())->Application().Selection() == selected);
         });
     };
-    test = IM_REGISTER_TEST(engine, "modules", "external_integer_editor_shared_by_inline_and_dialog");
+    test = IM_REGISTER_TEST(engine, "valueedits", "external_integer_editor_shared_by_inline_and_dialog");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -580,7 +580,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         });
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 7);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "parameter_watch_uses_selected_external_value_editor");
+    test = IM_REGISTER_TEST(engine, "valueedits", "parameter_watch_uses_selected_external_value_editor");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -625,7 +625,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         });
         IM_CHECK(IntegerValue(ctx, editing.parameters.front()) == 0);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "object_parameter_choices_apply_cancel_and_undo");
+    test = IM_REGISTER_TEST(engine, "valueedits", "object_parameter_choices_apply_cancel_and_undo");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -664,7 +664,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 0);
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "compound_parameter_dialog_one_undo_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "compound_parameter_dialog_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -736,7 +736,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         for (size_t i = 4; i < 8; ++i) IM_CHECK(Components(ctx, editing.parameters[i]) == additional[i - 4]);
         IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "color_picker_cancel_restores_working_value");
+    test = IM_REGISTER_TEST(engine, "valueedits", "color_picker_cancel_restores_working_value");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -767,7 +767,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->SetRef("//Value editing###PrimitiveValues"); ctx->ItemClick("**/Cancel/##dialogbutton");
         IM_CHECK(Components(ctx, editing.parameters[0]) == before);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "compound_inline_drag_cancel_and_undo");
+    test = IM_REGISTER_TEST(engine, "valueedits", "compound_inline_drag_cancel_and_undo");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -794,7 +794,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Components(ctx, editing.parameters[0]) == before);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "external_vector_editor_shared_by_inline_and_dialog");
+    test = IM_REGISTER_TEST(engine, "valueedits", "external_vector_editor_shared_by_inline_and_dialog");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -846,7 +846,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Components(ctx, editing.parameters[0]) == std::vector<float>({1, 2, 3}));
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "angle_dial_escape_stops_writes");
+    test = IM_REGISTER_TEST(engine, "valueedits", "angle_dial_escape_stops_writes");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -872,7 +872,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && !App().State().document->Dirty(); }));
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "nested_parameter_dialog_one_undo_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "nested_parameter_dialog_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { NestedFixture(); });
@@ -901,7 +901,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == before);
         IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "object_array_dialog_operations_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "object_array_dialog_operations_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -938,7 +938,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == before);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "object_array_inline_operations_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "object_array_inline_operations_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -975,7 +975,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == before);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "nested_inline_commit_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "nested_inline_commit_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { NestedFixture(false); });
@@ -995,7 +995,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "external_structure_editor_and_nested_provider");
+    test = IM_REGISTER_TEST(engine, "valueedits", "external_structure_editor_and_nested_provider");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
@@ -1043,7 +1043,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == inlineValue);
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "nested_flags_dialog_one_undo_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "nested_flags_dialog_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { FlagsFixture(true, true); });
@@ -1069,7 +1069,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]) == before && Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "flags_inline_masks_cancel_and_undo");
+    test = IM_REGISTER_TEST(engine, "valueedits", "flags_inline_masks_cancel_and_undo");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { FlagsFixture(false); });
@@ -1090,7 +1090,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty();
         }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "external_flags_editor_query_and_modifier");
+    test = IM_REGISTER_TEST(engine, "valueedits", "external_flags_editor_query_and_modifier");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
@@ -1126,7 +1126,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "specialized_dialog_one_undo_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "specialized_dialog_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(true); });
@@ -1150,7 +1150,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == curve && Value(ctx, editing.parameters[1]) == dependencies && Value(ctx, editing.parameters[2]) == lod);
         IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "curve_inline_drag_cancel_add_remove");
+    test = IM_REGISTER_TEST(engine, "valueedits", "curve_inline_drag_cancel_add_remove");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(false, false, true); });
@@ -1183,7 +1183,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         Input(ctx, "**/##cy", "0.4"); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
         IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[0] == double(-.2f));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "dependencies_options_cancel_preserves_hidden_bits");
+    test = IM_REGISTER_TEST(engine, "valueedits", "dependencies_options_cancel_preserves_hidden_bits");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] {
@@ -1208,7 +1208,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[1]) == before && Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "specialized_nested_editors_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "specialized_nested_editors_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(true, true); });
@@ -1223,7 +1223,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]) == before);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "external_specialized_value_providers_are_captured");
+    test = IM_REGISTER_TEST(engine, "valueedits", "external_specialized_value_providers_are_captured");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
@@ -1255,7 +1255,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[1] == 0 && Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "time_and_key_dialog_one_undo_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "time_and_key_dialog_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(true,false,true); });
@@ -1278,7 +1278,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx,editing.parameters[0]).real==61345.5 && IntegerValue(ctx,editing.parameters[1])==0x1e &&
             Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "time_inline_and_key_capture_lifecycle");
+    test = IM_REGISTER_TEST(engine, "valueedits", "time_inline_and_key_capture_lifecycle");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(false,false,true); });
@@ -1300,7 +1300,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { editing.inlineValue=true; }); ctx->Yield(3); ctx->KeyPress(ImGuiKey_D); ctx->Yield(2);
         IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "message_and_synchro_defer_creation_and_restore_users");
+    test = IM_REGISTER_TEST(engine, "valueedits", "message_and_synchro_defer_creation_and_restore_users");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(); });
@@ -1328,7 +1328,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx,editing.parameters[6]).waiters==3 && Value(ctx,editing.parameters[4]).text=="UI selector existing message");
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); }); IM_CHECK(Value(ctx,editing.parameters[6])==synchro);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "script_animation_and_attribute_selectors");
+    test = IM_REGISTER_TEST(engine, "valueedits", "script_animation_and_attribute_selectors");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(); });
@@ -1349,7 +1349,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx,editing.parameters[2])==script && Value(ctx,editing.parameters[3])==animation && Value(ctx,editing.parameters[5])==attribute);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "nested_remaining_selectors_one_undo_and_cancel");
+    test = IM_REGISTER_TEST(engine, "valueedits", "nested_remaining_selectors_one_undo_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(true,true); });
@@ -1365,7 +1365,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx,editing.parameters[0])==before);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "external_remaining_value_providers_are_captured");
+    test = IM_REGISTER_TEST(engine, "valueedits", "external_remaining_value_providers_are_captured");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
@@ -1397,7 +1397,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx,[]{IM_CHECK_NO_RET(App().State().History().Undo());});
         IM_CHECK(Value(ctx,editing.parameters[0]).real==61345.5 && Read<bool>(ctx,[]{return !App().State().document->Dirty();}));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "nested_member_reuse_is_rejected");
+    test = IM_REGISTER_TEST(engine, "valueedits", "nested_member_reuse_is_rejected");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { NestedFixture(); });

@@ -4,10 +4,27 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import struct
 import tempfile
 import xml.etree.ElementTree as ET
+
+EDITING_CATEGORIES = {
+    'appearance': 15, 'appearancespecialized': 6, 'appearanceparameters': 3,
+    'appearancebehaviors': 3, 'appearancesyncstate': 4, 'appearancevaluedialogs': 4,
+    'appearanceschematicdialogs': 4, 'appearancesetupdialogs': 6, 'appearancegraphdialogs': 8,
+    'appearancebreakpointdialogs': 2, 'appearanceapplicationdialogs': 6, 'appearanceoutputdialogs': 8,
+}
+
+
+def editing_cases(category):
+    source = (Path(__file__).parent / 'ui' / 'AppearanceTests.cpp').read_text(encoding='utf-8')
+    names = re.findall(r'IM_REGISTER_TEST\(\s*engine\s*,\s*"' + re.escape(category)
+                       + r'"\s*,\s*"([^"]+)"\s*\)', source)
+    if len(names) != EDITING_CATEGORIES[category] or len(set(names)) != len(names):
+        raise RuntimeError(category + ': appearance test registrations changed')
+    return names
 
 
 @contextmanager
@@ -51,6 +68,9 @@ def main():
     parser.add_argument('--module', type=Path, required=True)
     parser.add_argument('--results', type=Path, required=True)
     parser.add_argument('--help-dir', type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--edit-category', choices=EDITING_CATEGORIES)
+    mode.add_argument('--startup-only', action='store_true')
     args = parser.parse_args()
     args.results.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nemodev-appearance-') as temporary:
@@ -64,7 +84,7 @@ def main():
             env = dict(os.environ, NEMODEV_APPEARANCE_PHASE=phase,
                        NEMODEV_APPEARANCE_PROFILE=str(profile))
             selected = selection or ('^appearance$' if phase == 'edit' else 'appearance_startup_state')
-            count = expected if expected is not None else (15 if phase == 'edit' else 1)
+            count = expected if expected is not None else 1
             command = [str(args.binary), '--editor-profile', str(profile), '--ui-tests', selected,
                        '--ui-results', str(report)]
             if module:
@@ -90,19 +110,15 @@ def main():
             (args.results / (name + '.json')).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
             return data
 
-        with help_page(args.help_dir):
-            run('editing', 'edit', module=True)
-            run('specialized-editing', 'edit', module=True, selection='^appearancespecialized$', expected=6)
-            run('parameter-editing', 'edit', module=True, selection='^appearanceparameters$', expected=3)
-            run('behavior-editing', 'edit', module=True, selection='^appearancebehaviors$', expected=3)
-            run('sync-state-editing', 'edit', module=True, selection='^appearancesyncstate$', expected=4)
-            run('value-dialog-editing', 'edit', module=True, selection='^appearancevaluedialogs$', expected=4)
-            run('schematic-dialog-editing', 'edit', module=True, selection='^appearanceschematicdialogs$', expected=4)
-            run('setup-dialog-editing', 'edit', module=True, selection='^appearancesetupdialogs$', expected=6)
-            run('graph-dialog-editing', 'edit', module=True, selection='^appearancegraphdialogs$', expected=8)
-            run('breakpoint-dialog-editing', 'edit', module=True, selection='^appearancebreakpointdialogs$', expected=2)
-            run('application-dialog-editing', 'edit', module=True, selection='^appearanceapplicationdialogs$', expected=6)
-            run('output-dialog-editing', 'edit', module=True, selection='^appearanceoutputdialogs$', expected=8)
+        if not args.startup_only:
+            with help_page(args.help_dir):
+                categories = [args.edit_category] if args.edit_category else EDITING_CATEGORIES
+                for category in categories:
+                    for name in editing_cases(category):
+                        run('edit-' + name, 'edit', module=True, selection='^' + name + '$', expected=1)
+        if args.edit_category:
+            print(args.edit_category + ': all editing scenarios passed')
+            return
         profile.write_text('{"version":1}', encoding='utf-8')
         saved = run('save', 'save', module=True)
         assert {p['kind'] for p in saved['providers']} == {'theme', 'font', 'image'}
@@ -124,7 +140,7 @@ def main():
             run('invalid-layout' if provider == 'example.invalid-layout' else 'invalid-' + kind, 'restored', error=failure)
         profile.write_text(json.dumps({'version': 1, 'modules': [{'id': 'appearance.classic', 'enabled': False}]}), encoding='utf-8')
         run('builtin-disabled', 'basic')
-    print('Appearance editing, publication rollback, restoration, missing modules and invalid-resource protection passed')
+    print('Appearance publication rollback, restoration, missing modules and invalid-resource protection passed')
 
 
 if __name__ == '__main__':

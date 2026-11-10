@@ -114,7 +114,7 @@ void Context(ImGuiTestContext *ctx, ImGuiID id, const char *item) {
 }
 } // namespace
 void RegisterArrayEditTests(ImGuiTestEngine *engine) {
-    auto *test = IM_REGISTER_TEST(engine, "modules", "array_cell_one_undo_cancel_and_long_text");
+    auto *test = IM_REGISTER_TEST(engine, "arrayedits", "array_cell_one_undo_cancel_and_long_text");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Clean clean{ctx};
@@ -136,7 +136,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(Value(ctx) == longText && UndoCount(ctx) == 1);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "array_multiple_draft_accept_cancel_and_stale_rows");
+    test = IM_REGISTER_TEST(engine, "arrayedits", "array_multiple_draft_accept_cancel_and_stale_rows");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Clean clean{ctx};
@@ -163,7 +163,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx) == "B" && Value(ctx, 1) == "A");
         IM_CHECK(Read<bool>(ctx, [] { return !editing.table.dialog; }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "array_column_drafts_insert_delete_and_cancel");
+    test = IM_REGISTER_TEST(engine, "arrayedits", "array_column_drafts_insert_delete_and_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Clean clean{ctx};
@@ -211,7 +211,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         IM_CHECK(Value(ctx) == "A");
     };
-    test = IM_REGISTER_TEST(engine, "modules", "array_row_commands_preserve_parameter_identity");
+    test = IM_REGISTER_TEST(engine, "arrayedits", "array_row_commands_preserve_parameter_identity");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Clean clean{ctx};
@@ -246,7 +246,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         ctx->Yield(2);
         IM_CHECK(Value(ctx) == "A" && UndoCount(ctx) == 0);
     };
-    test = IM_REGISTER_TEST(engine, "modules", "array_scrolled_and_retargeted_cells_cancel");
+    test = IM_REGISTER_TEST(engine, "arrayedits", "array_scrolled_and_retargeted_cells_cancel");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Clean clean{ctx};
@@ -300,7 +300,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         IM_CHECK(Value(ctx) == "X");
     };
-    test = IM_REGISTER_TEST(engine, "modules", "array_external_queries_editors_and_modifiers");
+    test = IM_REGISTER_TEST(engine, "arrayedits", "array_external_queries_editors_and_modifiers");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Clean clean{ctx};

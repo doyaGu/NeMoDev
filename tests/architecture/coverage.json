@@ -1277,7 +1277,8 @@
         "VirtoolsDevUi.level",
         "VirtoolsDevUi.create",
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.blocks"
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.workspaceedits"
       ],
       "gaps": []
     },
@@ -1300,7 +1301,8 @@
       "ui_tests": [
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.hierarchy",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.workspaceedits"
       ],
       "gaps": []
     },
@@ -1326,7 +1328,8 @@
       "ui_tests": [
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.attributes",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.workspaceedits"
       ],
       "gaps": []
     },
@@ -1420,7 +1423,9 @@
         "VirtoolsDevUi.attributes",
         "VirtoolsDevUi.sound",
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.schematic"
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.valueedits",
+        "VirtoolsDevUi.arrayedits"
       ],
       "gaps": []
     },
@@ -1449,7 +1454,9 @@
         "VirtoolsDevUi.character",
         "VirtoolsDevUi.sound",
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup"
+        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup",
+        "VirtoolsDevUi.valueedits",
+        "VirtoolsDevUi.arrayedits"
       ],
       "gaps": []
     },
@@ -1850,7 +1857,19 @@
         "VirtoolsDevUi.WorkspaceLayout.schematic_object_filter_reflow_cancel_and_undo",
         "VirtoolsDevUi.WorkspaceLayout.profiler_reflow_keeps_details_sort_and_close",
         "VirtoolsDevUi.WorkspaceLayout.message_explorer_reflow_keeps_selection_and_lists",
-        "VirtoolsDevUi.SetupGrid.large_grid_layers_have_matching_cells"
+        "VirtoolsDevUi.SetupGrid.large_grid_layers_have_matching_cells",
+        "VirtoolsDevUi.AppearanceEditing.appearance",
+        "VirtoolsDevUi.AppearanceEditing.appearancespecialized",
+        "VirtoolsDevUi.AppearanceEditing.appearanceparameters",
+        "VirtoolsDevUi.AppearanceEditing.appearancebehaviors",
+        "VirtoolsDevUi.AppearanceEditing.appearancesyncstate",
+        "VirtoolsDevUi.AppearanceEditing.appearancevaluedialogs",
+        "VirtoolsDevUi.AppearanceEditing.appearanceschematicdialogs",
+        "VirtoolsDevUi.AppearanceEditing.appearancesetupdialogs",
+        "VirtoolsDevUi.AppearanceEditing.appearancegraphdialogs",
+        "VirtoolsDevUi.AppearanceEditing.appearancebreakpointdialogs",
+        "VirtoolsDevUi.AppearanceEditing.appearanceapplicationdialogs",
+        "VirtoolsDevUi.AppearanceEditing.appearanceoutputdialogs"
       ],
       "gaps": [
         {
@@ -2030,7 +2049,8 @@
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.modules",
         "VirtoolsDevUi.workspaceStartup",
-        "VirtoolsDevUi.layoutviews"
+        "VirtoolsDevUi.layoutviews",
+        "VirtoolsDevUi.workspaceedits"
       ],
       "gaps": []
     },
@@ -2146,7 +2166,9 @@
         "VirtoolsDevUi.ModuleLifecycle.DisabledExternal",
         "VirtoolsDevUi.ModuleLifecycle.StartRefusal",
         "VirtoolsDevUi.ModuleLifecycle.StartException",
-        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup"
+        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup",
+        "VirtoolsDevUi.valueedits",
+        "VirtoolsDevUi.arrayedits"
       ],
       "gaps": [
         {

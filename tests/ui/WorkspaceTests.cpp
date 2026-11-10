@@ -156,7 +156,7 @@ class ResourceSample {
 
 }
 void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
-    auto *test = IM_REGISTER_TEST(engine, "modules", "workspace_focus_replacement_and_event_log");
+    auto *test = IM_REGISTER_TEST(engine, "workspaceedits", "workspace_focus_replacement_and_event_log");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -225,7 +225,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "help_history_and_workspace_views_during_native_work");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "help_history_and_workspace_views_during_native_work");
     test->GuiFunc = WorkspaceGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -341,7 +341,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] { return App().Layout().UsesGpuViewport(); }));
     };
-    test = IM_REGISTER_TEST(engine, "modules", "registered_views_reset_docking");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "registered_views_reset_docking");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -374,7 +374,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
 
 
 
-    test = IM_REGISTER_TEST(engine, "modules", "workspace_layout_configuration_applies_and_rolls_back");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "workspace_layout_configuration_applies_and_rolls_back");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -424,7 +424,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "resource_views_navigation_drag_and_reset");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "resource_views_navigation_drag_and_reset");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -554,7 +554,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
     };
 
 
-    test = IM_REGISTER_TEST(engine, "modules", "resource_load_uses_primary_level_selection");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "resource_load_uses_primary_level_selection");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -629,7 +629,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "resource_behavior_information_uses_registered_input");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "resource_behavior_information_uses_registered_input");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -683,7 +683,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "resource_browsing_during_native_work");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "resource_browsing_during_native_work");
     test->GuiFunc = WorkspaceGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -711,7 +711,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         gate->Release(); ctx->Yield(5); Settle(ctx);
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "building_block_view_instances_and_navigation");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "building_block_view_instances_and_navigation");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
@@ -798,7 +798,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
-    test = IM_REGISTER_TEST(engine,"modules","scene_view_instances_queries_and_commands");
+    test = IM_REGISTER_TEST(engine,"workspaceedits","scene_view_instances_queries_and_commands");
     test->GuiFunc=MainThreadGui;
     test->TestFunc=[](ImGuiTestContext *ctx){
         Settle(ctx);
@@ -886,7 +886,7 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
-    test = IM_REGISTER_TEST(engine, "modules", "cross_view_object_drags_keep_source_selection_and_cancel_safely");
+    test = IM_REGISTER_TEST(engine, "workspaceedits", "cross_view_object_drags_keep_source_selection_and_cancel_safely");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
