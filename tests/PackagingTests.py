@@ -35,7 +35,7 @@ class PackageLinks(unittest.TestCase):
             contents = app / "Contents"
             modules = contents / "Frameworks/modules"
             modules.mkdir(parents=True)
-            (contents / "Frameworks/BallancedRuntime.txt").write_bytes(b"Runtime metadata")
+            (contents / "Frameworks/NeMo2Runtime.txt").write_bytes(b"Runtime metadata")
             (modules / "libDocumentInfo.dylib").write_bytes(b"Module unchanged")
             (modules / "private").mkdir()
             (modules / "private/data.txt").write_bytes(b"Private module data")
@@ -89,7 +89,7 @@ class PackageLinks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app = Path(directory) / "NeMoDev.app"
             contents = app / "Contents"
-            for name in ("Frameworks/BallancedRuntime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
+            for name in ("Frameworks/NeMo2Runtime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
                 path = contents / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"Original SDK data\n")
@@ -99,7 +99,7 @@ class PackageLinks(unittest.TestCase):
             app.rename(Path(directory) / "Moved App.app")
             moved = Path(directory) / "Moved App.app"
             check_symlinks(moved)
-            for name in ("Frameworks/BallancedRuntime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
+            for name in ("Frameworks/NeMo2Runtime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
                 path = moved / "Contents" / name
                 self.assertTrue(path.is_symlink())
                 self.assertFalse(Path(os.readlink(path)).is_absolute())

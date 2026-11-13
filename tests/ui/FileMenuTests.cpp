@@ -711,7 +711,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         const fs::path previous = fs::current_path();
         const fs::path root = previous / ("web-page-" + std::to_string(SDL_GetPerformanceCounter()));
-        const fs::path metadata = fs::u8path(App().State().host.RuntimeDirectory()) / "BallancedRuntime.txt";
+        const fs::path metadata = fs::u8path(App().State().host.RuntimeDirectory()) / "NeMo2Runtime.txt";
         const std::string original = PageFileBytes(metadata);
         IM_CHECK(!original.empty());
         IM_CHECK(fs::create_directory(root));
@@ -777,7 +777,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         }
         IM_CHECK(fs::remove(html) && fs::remove(player) && fs::remove(composition));
         // Missing, malformed, unrelated and mismatched metadata must fail before either write.
-        const std::string invalid[] = {"", "BallancedSDK invalid", "OtherSDK 1 1", "BallancedSDK 1 1"};
+        const std::string invalid[] = {"", "NeMo2SDK invalid", "OtherSDK 1 1", "NeMo2SDK 1 1"};
         for (size_t i = 0; i < std::size(invalid); ++i) {
             if (i == 0) IM_CHECK(fs::remove(metadata));
             else IM_CHECK(WritePageFile(metadata, invalid[i]));

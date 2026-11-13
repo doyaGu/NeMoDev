@@ -60,7 +60,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/runtime/Bin")
 foreach(_configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_configuration} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 endforeach()
-include(cmake/Ballanced.cmake)
+include(cmake/NeMo2.cmake)
 set(_runtime_data "${PROJECT_BINARY_DIR}/runtime/data")
 if(APPLE)
     # Cocoa/SDL resolves resources relative to the development application too.

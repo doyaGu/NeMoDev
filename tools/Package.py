@@ -61,7 +61,7 @@ def check_payload(package):
     check_symlinks(package)
     if (package / "Bin/data").exists():
         raise RuntimeError("Application data must be next to Bin, not inside it")
-    required = ("data/interface.nmo", "Bin/BallancedRuntime.txt", "LICENSE", "THIRD_PARTY_NOTICES.md",
+    required = ("data/interface.nmo", "Bin/NeMo2Runtime.txt", "LICENSE", "THIRD_PARTY_NOTICES.md",
                 "data/fonts/NotoSans-Regular.ttf", "data/fonts/NotoSansSC-Regular.otf")
     for name in required:
         if not (package / name).is_file():
@@ -165,7 +165,7 @@ def linux_tar(package, output, name, work):
                "System requirements: glibc 2.35+, GTK3 with its Unix Print/CUPS backend, GIO,\n"
                "libpng16, zlib, libstdc++, libudev, D-Bus, libdecor, Vulkan and a graphics driver.\n"
                "Install Zenity for SDL's native file dialogs, and ALSA/PulseAudio libraries for audio.\n"
-               "SDL3, libharu, the Ballanced runtime, plugins and fonts are included.\n"
+               "SDL3, libharu, the NeMo2 runtime, plugins and fonts are included.\n"
                "Actual required symbol versions are recorded in build-info.json.\n\n"
                "Use your distribution's package manager to install these system libraries.\n"
                "This archive does not replace glibc, GTK, graphics drivers or system settings.\n"
@@ -220,7 +220,7 @@ def linux_deb(package, output, name, version, work):
     write_text(root / "DEBIAN/control", f"Package: nemodev\nVersion: {version}\nArchitecture: amd64\n"
                "Section: non-free/devel\nPriority: optional\nMaintainer: NeMoDev contributors <noreply@github.com>\n"
                f"Installed-Size: {size}\nDepends: {required}\nHomepage: https://github.com/doyaGu/NeMoDev\n"
-               "Description: Virtools composition editor\n Edit Scripts, objects and resources with Ballanced.\n")
+               "Description: Virtools composition editor\n Edit Scripts, objects and resources with NeMo2.\n")
     copyright_path = root / "usr/share/doc/nemodev/copyright"
     copyright_path.parent.mkdir(parents=True)
     shutil.copy2(payload / "THIRD_PARTY_NOTICES.md", copyright_path)
@@ -246,7 +246,7 @@ def move_mac_resources(contents):
     # macOS signs code directories as nested code. Keep SDK configuration and
     # runtime metadata in Resources, with internal relative links at the SDK's
     # existing lookup locations; no SDK source changes are required.
-    metadata = [contents / "Frameworks/BallancedRuntime.txt", *contents.glob("PlugIns/**/*.ini")]
+    metadata = [contents / "Frameworks/NeMo2Runtime.txt", *contents.glob("PlugIns/**/*.ini")]
     for path in metadata:
         destination = contents / "Resources/runtime" / path.relative_to(contents)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -355,7 +355,7 @@ def main():
         check_payload(package)
         (package / "build-info.json").write_text(json.dumps({"version": args.version,
             "revision": args.revision, "platform": system, "configuration": "Release"}, indent=2) + "\n")
-        shutil.copy2(args.sdk_revisions, package / "ballanced-revisions.txt")
+        shutil.copy2(args.sdk_revisions, package / "nemo2-revisions.txt")
         if sys.platform == "win32":
             archives = [windows_zip(package, output, name, work)]
         elif sys.platform == "darwin":

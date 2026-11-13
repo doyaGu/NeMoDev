@@ -123,10 +123,10 @@ CkRuntimeHost::~CkRuntimeHost() {
 }
 
 bool RuntimeVersion(const std::string &runtimeDirectory, int &major, int &minor) {
-    std::ifstream file(std::filesystem::u8path(runtimeDirectory) / "BallancedRuntime.txt");
+    std::ifstream file(std::filesystem::u8path(runtimeDirectory) / "NeMo2Runtime.txt");
     std::string signature;
     CKDWORD ckVersion = 0, devVersion = 0;
-    if (!(file >> signature >> std::hex >> ckVersion >> devVersion) || signature != "BallancedSDK" ||
+    if (!(file >> signature >> std::hex >> ckVersion >> devVersion) || signature != "NeMo2SDK" ||
         ckVersion != CKGetVersion() || devVersion != DEVVERSION) return false;
     major = static_cast<int>((devVersion >> 24) & 0xFF);
     minor = static_cast<int>((devVersion >> 16) & 0xFF);
@@ -150,7 +150,7 @@ bool CkRuntimeHost::Start(const std::string &runtimeDirectory, LogSink sink, std
 
     int runtimeMajor = 0, runtimeMinor = 0;
     if (!RuntimeVersion(runtimeDirectory, runtimeMajor, runtimeMinor))
-        return fail("Only the Ballanced runtime staged by this source build is supported: " + runtimeDirectory);
+        return fail("Only the NeMo2 runtime staged by this source build is supported: " + runtimeDirectory);
 
 #if defined(__linux__)
     // VxMath supports XDG font directories. Add the installed data directory
