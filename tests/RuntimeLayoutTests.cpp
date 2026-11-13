@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 #include <SDL3/SDL.h>
@@ -15,6 +16,38 @@
 static void RequirePath(const std::string &actual, const std::filesystem::path &expected) {
     if (std::filesystem::u8path(actual).lexically_normal() != expected.lexically_normal())
         throw std::runtime_error("Expected " + expected.u8string() + ", got " + actual);
+}
+
+static void CheckRuntimeMetadata(const std::filesystem::path &root) {
+    std::filesystem::create_directories(root);
+    std::ostringstream version;
+    version << std::hex << CKGetVersion() << '\n' << DEVVERSION << '\n';
+    const auto verify = [&](const std::string &text, bool valid) {
+        { std::ofstream(root / "NeMo2Runtime.txt") << text; }
+        int major = -1, minor = -1;
+        if (vdev::RuntimeVersion(root.u8string(), major, minor) != valid)
+            throw std::runtime_error("Unexpected runtime metadata result: " + text);
+        if (valid ? major != int((DEVVERSION >> 24) & 0xff) || minor != int((DEVVERSION >> 16) & 0xff)
+                  : major != -1 || minor != -1)
+            throw std::runtime_error("Runtime metadata changed the reported version incorrectly");
+    };
+    verify("NeMo2SDK\n" + version.str(), true);
+    for (const auto &text : {std::string(), std::string("NeMo2SDK\n"), std::string("NeMo2SDK invalid"),
+                            std::string("NeMo2SDK 1 1"), std::string("OtherSDK\n") + version.str(),
+                            std::string("BallancedSDK\n") + version.str()})
+        verify(text, false);
+    std::filesystem::remove(root / "NeMo2Runtime.txt");
+    { std::ofstream(root / "BallancedRuntime.txt") << "BallancedSDK\n" << version.str(); }
+    int major = -1, minor = -1;
+    if (vdev::RuntimeVersion(root.u8string(), major, minor))
+        throw std::runtime_error("Legacy runtime metadata was accepted as NeMo2");
+    vdev::CkRuntimeHost host;
+    std::string error;
+    if (host.Start(root.u8string(), {}, &error) || host.Context() ||
+        error.find("Only the NeMo2 runtime staged by this source build is supported") == std::string::npos)
+        throw std::runtime_error("An unrelated runtime was started: " + error);
+    std::filesystem::remove_all(root);
+    std::cout << "NeMo2 runtime metadata: versions checked, unrelated runtimes rejected\n";
 }
 
 static void CheckInstalledRuntime(const std::string &path) {
@@ -95,6 +128,10 @@ int main(int argc, char **argv) {
     const auto root = std::filesystem::temp_directory_path() /
         ("nemodev-runtime-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
+        if (argc == 2 && std::string(argv[1]) == "--metadata") {
+            CheckRuntimeMetadata(root);
+            return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--runtime") {
             CheckInstalledRuntime(argv[2]);
             return 0;
@@ -105,7 +142,7 @@ int main(int argc, char **argv) {
             return 0;
         }
 #endif
-        if (argc != 1) throw std::runtime_error("Expected no arguments or --runtime PATH");
+        if (argc != 1) throw std::runtime_error("Expected no arguments, --metadata or --runtime PATH");
         const auto flat = root / "flat";
         std::filesystem::create_directories(flat / "RenderEngines");
         std::ofstream(flat / VIRTOOLS_CK2_FILENAME).put('\0');
