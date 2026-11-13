@@ -7,7 +7,7 @@
 #include "CKAll.h"
 #include "core/runtime/FileDuplicates.h"
 
-// SDK helpers for the source-built Ballanced runtime.
+// SDK helpers for the source-built NeMo2 runtime.
 namespace vdev {
 
 class CkRuntimeHost;

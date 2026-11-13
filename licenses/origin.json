@@ -12,11 +12,6 @@
       "sha256": "8d01df5085b3d7c055999188bfc743354b00658be309819eb0415239820b1835"
     },
     {
-      "file": "Ballanced-MIT.txt",
-      "source": "https://raw.githubusercontent.com/doyaGu/Ballanced/e501fee83e4206f24cd843716a9a6c1f31edcbf7/LICENSE",
-      "sha256": "ae0cd25729ad3f4c4076cafbc92d220f4455f288cce394cb5ccae8db6aa3702a"
-    },
-    {
       "file": "Apache-2.0.txt",
       "source": "https://raw.githubusercontent.com/doyaGu/CK2/636172f82627f39720751f2140b81eb5ac37dc97/LICENSE",
       "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"

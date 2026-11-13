@@ -71,12 +71,12 @@ The CMake presets enable UI tests by default. Set
 available. Its license is included with the notices for reference even when
 the UI test executable is not built.
 
-## Ballanced runtime and its dependencies
+## NeMo2 runtime and its dependencies
 
-The editor builds a separately supplied [Ballanced](https://github.com/doyaGu/Ballanced)
-checkout. Its root project carries [MIT](licenses/Ballanced-MIT.txt), copyright
-2022 kakuty. Runtime components and their nested dependencies have separate
-terms; the root license does not replace them.
+The editor builds a separately supplied [NeMo2](https://github.com/doyaGu/NeMo2)
+checkout, licensed under [Apache-2.0](licenses/Apache-2.0.txt). Runtime components
+and their nested dependencies retain their own terms; the root license does
+not replace them.
 
 | Component | Role | License or status |
 | --- | --- | --- |

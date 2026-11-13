@@ -321,7 +321,7 @@ EditResult CreateAutomaticPortal(Document &document, CK_ID place, CK_ID other);
 // (CreateAutomaticPortal); one undo step. Refused when none touch.
 EditResult CreateAutomaticPortals(Document &document, std::vector<CK_ID> *created = nullptr);
 
-// Sprite Text font settings stored by Ballanced: face, size, weight, italic,
+// Sprite Text font settings stored by NeMo2: face, size, weight, italic,
 // underline. Positive sizes are points; negative sizes are pixel heights.
 struct SpriteTextFont {
     std::string face;

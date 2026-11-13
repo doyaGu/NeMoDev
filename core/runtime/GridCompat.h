@@ -4,7 +4,7 @@
 
 namespace vdev {
 
-// Ballanced declares the complete CKGrid interface directly.
+// NeMo2 declares the complete CKGrid interface directly.
 inline CKERROR GridAddClassification(CKGrid *grid, int classification) {
     return grid->AddClassification(classification);
 }

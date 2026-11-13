@@ -4,7 +4,7 @@
 
 NeMoDev is a desktop editor for Virtools compositions (`.cmo`, `.nmo` and `.vmo`).
 It brings the Schematic, 3D Layout and object editors to an SDL3 / Dear ImGui
-interface, running on [Ballanced](https://github.com/doyaGu/Ballanced).
+interface, running on [NeMo2](https://github.com/doyaGu/NeMo2).
 
 Opening an `.nmo` is a shortcut for New Composition followed by Import File.
 The imported objects belong to a new, unsaved composition.
@@ -26,7 +26,7 @@ path. The path is selected once per render Context, not negotiated per frame.
 - Undo and redo edits, save compositions, print Schematics and browse local help.
 
 The editor targets Windows x64, Linux x64 and macOS ARM64. The macOS x64 and
-Windows x86 presets are experimental. NeMoDev builds its runtime from Ballanced
+Windows x86 presets are experimental. NeMoDev builds its runtime from NeMo2
 source; it does not use the original binary Virtools SDK or runtime.
 
 ## Downloads
@@ -49,7 +49,7 @@ after verifying the download, allow the app through System Settings → Privacy 
 Security if Gatekeeper blocks it. Builds use CI build numbers rather than a
 stable-release version. Original CHM help is not included.
 
-Linux portable packages include SDL3, libharu, the Ballanced runtime, plugins
+Linux portable packages include SDL3, libharu, the NeMo2 runtime, plugins
 and fonts. GTK3 with its Unix Print/CUPS backend, GIO, the Vulkan loader and a
 graphics driver remain system dependencies, alongside libudev, D-Bus and
 libdecor for SDL's desktop/device backends. Install Zenity for native file
@@ -74,12 +74,12 @@ are outside their support range.
 
 You will need:
 
-- **CMake 3.25+** and a **C++17** toolchain: Visual Studio 2022 on Windows,
+- **CMake 3.25+** and a **C++20** toolchain: Visual Studio 2022 on Windows,
   GCC or Clang with Ninja on Linux, or Xcode command-line tools on macOS.
 - **Shared SDL3 3.4.20+**, installed with its CMake package. See SDL's
   [build instructions](https://wiki.libsdl.org/SDL3/README-cmake).
 - **Python 3.8+ and Pillow 9.1+** for compiling image resources.
-- **Ballanced's public `sdl` branch**, with its submodules initialized.
+- **NeMo2's public `main` branch**, with its submodules initialized.
 
 Linux also needs the GTK3 Unix Print, GIO and libharu development packages:
 
@@ -106,22 +106,23 @@ cd NeMoDev
 git submodule update --init --recursive external/imgui external/litehtml external/nlohmann_json
 ```
 
-Keep these submodules at the recorded revisions. Ballanced is a separate
+Keep these submodules at the recorded revisions. NeMo2 is a separate
 checkout, selected explicitly at configure time; there is no default SDK path.
 An existing local checkout can be used directly. To prepare a new one:
 
 ```sh
-git clone --branch sdl --recurse-submodules https://github.com/doyaGu/Ballanced.git "<Ballanced checkout>"
+git clone --recurse-submodules https://github.com/doyaGu/NeMo2.git "<NeMo2 checkout>"
 ```
 
 NeMoDev builds the SDK libraries, managers, readers and Building Blocks from
-that checkout. It does not build Ballanced's Player or stage its game assets.
+that checkout. NeMo2 assembles the engine modules; NeMoDev stages the runtime
+and application data.
 Images, fonts and `interface.nmo` are already included in this repository.
 You do not need CHM documentation or original sample compositions to build.
 
 ### Configure and build
 
-Replace the two dependency paths below with your Ballanced checkout and SDL
+Replace the two dependency paths below with your NeMo2 checkout and SDL
 installation prefix. Select the Python interpreter that has Pillow installed.
 
 **Windows x64** — PowerShell:
@@ -129,7 +130,7 @@ installation prefix. Select the Python interpreter that has Pillow installed.
 ```powershell
 py -3 -m venv .venv
 .venv/Scripts/python.exe -m pip install "Pillow>=9.1"
-cmake --preset windows-x64-release "-DVIRTOOLS_SDK_PATH=<Ballanced checkout>" "-DCMAKE_PREFIX_PATH=<SDL installation>" "-DPython3_EXECUTABLE=$PWD/.venv/Scripts/python.exe"
+cmake --preset windows-x64-release "-DVIRTOOLS_SDK_PATH=<NeMo2 checkout>" "-DCMAKE_PREFIX_PATH=<SDL installation>" "-DPython3_EXECUTABLE=$PWD/.venv/Scripts/python.exe"
 cmake --build --preset windows-x64-release --parallel 4
 out/windows-x64-release/runtime/Bin/NeMoDev.exe
 ```
@@ -140,7 +141,7 @@ out/windows-x64-release/runtime/Bin/NeMoDev.exe
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install "cmake>=3.25,<4" "Pillow>=9.1"
-cmake --preset linux-x64-release -DVIRTOOLS_SDK_PATH="<Ballanced checkout>" -DCMAKE_PREFIX_PATH="<SDL installation>" -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --preset linux-x64-release -DVIRTOOLS_SDK_PATH="<NeMo2 checkout>" -DCMAKE_PREFIX_PATH="<SDL installation>" -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
 cmake --build --preset linux-x64-release --parallel 4
 out/linux-x64-release/runtime/Bin/NeMoDev
 ```
@@ -152,7 +153,7 @@ Ubuntu 22.04 whose default CMake package predates the required version.
 Homebrew, then prepare the Python virtual environment as above:
 
 ```sh
-cmake --preset macos-arm64-release -DVIRTOOLS_SDK_PATH="<Ballanced checkout>" -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --preset macos-arm64-release -DVIRTOOLS_SDK_PATH="<NeMo2 checkout>" -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
 cmake --build --preset macos-arm64-release --parallel 4
 out/macos-arm64-release/runtime/Bin/NeMoDev
 ```
@@ -265,7 +266,7 @@ Use a preset without `-release` to build the tests. To run core tests without
 ImGui Test Engine, configure it with `VIRTOOLSDEV_BUILD_UI_TESTS=OFF`:
 
 ```sh
-cmake --preset linux-x64 -DVIRTOOLS_SDK_PATH="<Ballanced checkout>" -DCMAKE_PREFIX_PATH="<SDL installation>" -DPython3_EXECUTABLE="$PWD/.venv/bin/python" -DVIRTOOLSDEV_BUILD_UI_TESTS=OFF
+cmake --preset linux-x64 -DVIRTOOLS_SDK_PATH="<NeMo2 checkout>" -DCMAKE_PREFIX_PATH="<SDL installation>" -DPython3_EXECUTABLE="$PWD/.venv/bin/python" -DVIRTOOLSDEV_BUILD_UI_TESTS=OFF
 cmake --build --preset linux-x64 --parallel 4
 ctest --preset linux-x64 -L self-contained --no-tests=error
 ```
@@ -292,14 +293,14 @@ ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
 ### Continuous integration
 
 [CI](https://github.com/doyaGu/NeMoDev/actions/workflows/ci.yml) builds the
-editor against Ballanced mainline on Windows, Linux and macOS ARM64. It runs the
+editor against NeMo2 mainline on Windows, Linux and macOS ARM64. It runs the
 self-contained regressions, checks installed runtime dependencies and verifies
 that the production package contains no test code. Linux also runs the
 self-contained UI groups through Xvfb and software Vulkan. The standalone
 HTML module is built and tested on Windows, Linux and macOS.
 
-Selected tests must all pass; skips fail CI. Each run records the Ballanced
-revision and uploads test inventories, results and failure logs. Ballanced's
+Selected tests must all pass; skips fail CI. Each run records the NeMo2
+revision and uploads test inventories, results and failure logs. NeMo2's
 native build is cached by SDK revision, runner image, SDL version and build
 configuration; editor source changes reuse it. Tests and package checks still
 run on cache hits. Distribution
@@ -309,11 +310,11 @@ archive is checked in clean Ubuntu 22.04/24.04, Debian 12/13, Fedora 44, openSUS
 Tumbleweed and Arch Linux containers. These checks use X11/software Vulkan and
 cover a new composition, drawn frames, packaged libraries, relocation, launcher symlinks, GTK print
 backends and PDF output. The extra distributions consume the one Linux build;
-they do not rebuild Ballanced. The Debian and Ubuntu containers also install
+they do not rebuild NeMo2. The Debian and Ubuntu containers also install
 and launch the DEB before and after relocating its payload.
 Hosted Windows/macOS checks do not replace GPU and native-desktop acceptance.
 A weekly run
-checks compatibility with changes in Ballanced even when NeMoDev is unchanged.
+checks compatibility with changes in NeMo2 even when NeMoDev is unchanged.
 
 Original-composition regressions need samples supplied under `local-samples/data`
 or through `VIRTOOLSDEV_SAMPLE_ROOT`. Copy
@@ -340,6 +341,6 @@ output. Workset membership lasts for the current editor session.
 [VirtoolsScriptDeobfuscation](https://github.com/BearKidsTeam/VirtoolsScriptDeobfuscation)
 also retains **CC BY-NC-SA 4.0**.
 
-Ballanced, SDL3, Dear ImGui, litehtml, fonts and original Virtools resources
+NeMo2, SDL3, Dear ImGui, litehtml, fonts and original Virtools resources
 retain their own terms. See [third-party notices](THIRD_PARTY_NOTICES.md) for
 attribution, license scope and unresolved runtime redistribution permissions.
