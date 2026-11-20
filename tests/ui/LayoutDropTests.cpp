@@ -85,7 +85,7 @@ void Bitmap(const std::filesystem::path &path) {
 struct LongResourceFolder {
     std::filesystem::path root, folder;
     LongResourceFolder() {
-        root = vdevtest::ResourceTestRoot("resource-long-path-");
+        root = vdevtest::LongPathTestRoot("resource-long-path-");
         folder = vdevtest::LongResourceDirectory(root);
     }
     ~LongResourceFolder() {

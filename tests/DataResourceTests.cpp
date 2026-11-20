@@ -10,6 +10,7 @@
 #include "workspace/EditorClient.h"
 #include "workspace/EditorWorkspace.h"
 #include "workspace/ResourceDrag.h"
+#include "tests/ResourceFiles.h"
 #include <filesystem>
 #include <chrono>
 #include <fstream>
@@ -60,10 +61,20 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     EditorClient client(editor.Host(), 0);
     std::vector<EditorResponse> notices;
     editor.report = [&](const EditorResponse &result) { notices.push_back(result); };
-    const auto root = fs::temp_directory_path() / "nemodev-resource-query-tests";
-    fs::remove_all(root);
+    const auto root = fs::temp_directory_path() /
+        ("nemodev-resource-query-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(root);
     Remove cleanup{root};
+    const Remove longResource{vdevtest::LongPathTestRoot("resource-create-")};
+    const auto deep = vdevtest::LongResourceDirectory(longResource.path);
+    const auto longLibrary = (deep / "Library.rsc").u8string();
+    const bool created = CreateDataResource(longLibrary, &error);
+    Check(created, "create Data Resource at a long path: " + error);
+    for (const char *name : {"Characters", "3D Entities"}) {
+        const auto folder = deep / "Library" / name / "Animations";
+        Check(DataResourceFolderClass(folder.u8string()) == CKCID_ANIMATION,
+              "nested Animation folder did not keep its marker at a long path");
+    }
     struct CreateFailure : SaveFileOperations {
         unsigned calls = 0, fail = 0;
         std::error_code Replace(const fs::path &from, const fs::path &to, bool overwrite) override {

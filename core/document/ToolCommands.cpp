@@ -151,6 +151,12 @@ bool CreateDataResource(const std::string &file, std::string *error, SaveFileOpe
         {"Textures", CKCID_TEXTURE, "Texture"},
         {"Sounds", CKCID_SOUND, "Sound"},
     };
+    const auto folderPath = [&](const Folder &folder) {
+        auto path = root / folder.path;
+        // The extended Win32 path prefix requires native separators.
+        path.make_preferred();
+        return path;
+    };
     bool success = false;
     {
         OutputFiles outputs(report, operations);
@@ -166,7 +172,7 @@ bool CreateDataResource(const std::string &file, std::string *error, SaveFileOpe
         success = directory(root) && write(rsc, "Virtools RSC File 1.0\n");
         for (const auto &folder : folders) {
             if (!success) break;
-            const auto path = root / folder.path;
+            const auto path = folderPath(folder);
             success = directory(path) && write(path / "_marker_", std::to_string(folder.cid) + "\n" + folder.className + "\n");
         }
         std::vector<std::string> written;
@@ -188,7 +194,7 @@ bool CreateDataResource(const std::string &file, std::string *error, SaveFileOpe
     }
 #ifdef _WIN32
     for (const auto &folder : folders)
-        SetFileAttributesW((root / folder.path / "_marker_").c_str(), FILE_ATTRIBUTE_HIDDEN);
+        SetFileAttributesW((folderPath(folder) / "_marker_").c_str(), FILE_ATTRIBUTE_HIDDEN);
 #endif
     return true;
 }

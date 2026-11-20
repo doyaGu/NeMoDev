@@ -686,6 +686,14 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                 IM_CHECK_NO_RET(client.Command("layout.toggle-fullscreen").status == EDITOR_OK);
             });
             IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
+#if defined(_WIN32)
+            IM_CHECK(Read<bool>(ctx, [] {
+                const auto hwnd = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(RenderWindow()),
+                    SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+                RECT client{};
+                return hwnd && !IsIconic(hwnd) && GetClientRect(hwnd, &client) && client.right > 0 && client.bottom > 0;
+            }));
+#endif
             OnMainThread(ctx, [] {
                 PushKey(RenderWindow(), SDL_SCANCODE_F6, true);
                 PushMouse(RenderWindow(), 100, 100, true);

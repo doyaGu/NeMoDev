@@ -270,10 +270,9 @@ foreach(_host IN ITEMS VirtoolsDev VirtoolsDevUiTests)
     endif()
 endforeach()
 if(WIN32)
-    target_compile_definitions(VirtoolsDevImGui PRIVATE "IMGUI_API=__declspec(dllexport)")
-    if(TARGET VirtoolsDevImGuiTestEngine)
-        target_compile_definitions(VirtoolsDevImGuiTestEngine PRIVATE "IMGUI_API=__declspec(dllexport)")
-    endif()
+    # Export the shared ImGui API from both hosts. Test Engine helpers are local
+    # to the test host and its config declares their hooks without DLL linkage.
+    set_property(SOURCE ${_imgui_sources} APPEND PROPERTY COMPILE_DEFINITIONS "IMGUI_API=__declspec(dllexport)")
 endif()
 option(VIRTOOLSDEV_BUILD_EXAMPLES "Build and install public editor module examples" OFF)
 if(VIRTOOLSDEV_BUILD_EXAMPLES OR VIRTOOLSDEV_BUILD_TESTS)

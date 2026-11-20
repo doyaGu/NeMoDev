@@ -681,8 +681,13 @@ bool RegisteredModules::Load(const EditorHost *host, const std::string &path, st
         return false;
     }
 #ifdef _WIN32
+    // A bad image must return an editor error without blocking on a system dialog.
+    DWORD previousMode = 0;
+    const bool changedMode = SetThreadErrorMode(GetThreadErrorMode() | SEM_FAILCRITICALERRORS, &previousMode) != FALSE;
     void *library =
         LoadLibraryExW(file.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    if (changedMode)
+        SetThreadErrorMode(previousMode, nullptr);
     auto entry =
         library ? reinterpret_cast<EditorModuleEntry>(GetProcAddress(static_cast<HMODULE>(library), "NeMoDevModule"))
                 : nullptr;

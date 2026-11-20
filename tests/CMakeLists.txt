@@ -1,6 +1,9 @@
 # Virtools Dev's tests: they link the core only.
 find_package(Threads REQUIRED)
 add_executable(NeMoDevProfileTests EditorProfileTests.cpp)
+if(MSVC)
+    target_compile_options(NeMoDevProfileTests PRIVATE /utf-8)
+endif()
 target_link_libraries(NeMoDevProfileTests PRIVATE NeMoDevEditorApplication)
 target_compile_definitions(NeMoDevProfileTests PRIVATE PREFERENCE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/preferences")
 add_test(NAME NeMoDevProfile COMMAND NeMoDevProfileTests)

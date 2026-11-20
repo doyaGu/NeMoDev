@@ -169,7 +169,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
         return editor.Execute(external ? "example.load-resources" : drop ? "resource.drop" : "resource.load",
                               {editor.Scope(), args, 3});
     };
-    const auto root = vdevtest::ResourceTestRoot("resource-command-");
+    const auto root = vdevtest::LongPathTestRoot("resource-command-");
     Check(fs::create_directory(root), "cannot create resource test folder");
     struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{root};
     const auto first = CreateLayoutObject(document, LayoutObject::Frame3D);

@@ -3,6 +3,9 @@
 #include "core/layout/SdlGpuInterop.h"
 
 #include <SDL3/SDL.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +23,20 @@ const char *const VIEW_NAMES[LAYOUT_VIEW_CAMERA_COUNT] = {"Perspective View", "T
                                                           "Orthographic View"};
 SDL_Window *MakeWindow(int width, int height) {
     return SDL_CreateWindow("3D Layout", width, height, SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+}
+
+bool SuppressWindowActivation(SDL_Window *window) {
+    if (SDL_SetWindowFocusable(window, false))
+        return true;
+#ifdef _WIN32
+    // SDL 3.4.20 treats a zero previous extended style from SetWindowLong
+    // as failure even when Windows installed WS_EX_NOACTIVATE.
+    const auto hwnd = static_cast<HWND>(SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    return hwnd && (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_NOACTIVATE) != 0;
+#else
+    return false;
+#endif
 }
 
 void MarkInterface(CKObject *object) {
@@ -623,22 +640,33 @@ bool LayoutView::GoFullScreen(int driver, const VxDisplayMode &mode) {
     if (!completed || result != CK_OK || !rc->IsFullScreen()) return false;
     // The SDL rasterizer renders to a caller-owned window. CK's fullscreen
     // render context does not change that window's desktop mode.
+    bool windowReady = true;
+#ifdef _WIN32
+    // Win32 keeps an iconic window minimized when shown, and SDL's Win32
+    // backend skips the native restore once the window is fullscreen.
+    if (SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED) {
+        windowReady = SDL_ShowWindow(m_Window) && SDL_RestoreWindow(m_Window) && SDL_SyncWindow(m_Window) &&
+                      !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED);
+    }
+#endif
     SDL_DisplayMode displayMode{};
     const SDL_DisplayID display = SDL_GetDisplayForWindow(m_Window);
-    const bool switched = SDL_GetClosestFullscreenDisplayMode(display, mode.Width, mode.Height,
+    const bool switched = windowReady && SDL_GetClosestFullscreenDisplayMode(display, mode.Width, mode.Height,
             static_cast<float>(mode.RefreshRate), true, &displayMode) &&
         displayMode.w == mode.Width && displayMode.h == mode.Height &&
         SDL_SetWindowFullscreenMode(m_Window, &displayMode) && SDL_SetWindowFullscreen(m_Window, true);
     if (!switched) {
         SDL_SetWindowFullscreen(m_Window, false);
         GuardedCall([&] { rc->StopFullScreen(); }, &m_Host, "CKRenderContext::StopFullScreen");
+        SDL_HideWindow(m_Window);
         return false;
     }
-    SDL_ShowWindow(m_Window);
-    // SDL may have minimized the previous fullscreen window on focus loss.
-    // Showing a hidden window does not restore that native minimized state.
+    const bool shown = SDL_ShowWindow(m_Window);
+    // Other window managers can restore a minimized window in fullscreen.
     const bool restored = !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED) || SDL_RestoreWindow(m_Window);
-    if (!restored || !SDL_SyncWindow(m_Window) || !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_FULLSCREEN)) {
+    constexpr SDL_WindowFlags transitionFlags = SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN;
+    if (!shown || !restored || !SDL_SyncWindow(m_Window) ||
+        (SDL_GetWindowFlags(m_Window) & transitionFlags) != SDL_WINDOW_FULLSCREEN) {
         StopFullScreen();
         return false;
     }
@@ -669,7 +697,7 @@ bool LayoutView::StopFullScreen() {
                 SDL_SetWindowFocusable(window, true);
         }
     } focus{m_Window, !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_NOT_FOCUSABLE)};
-    if (focus.restore && !SDL_SetWindowFocusable(m_Window, false))
+    if (focus.restore && !SuppressWindowActivation(m_Window))
         return false;
     if (!SDL_SetWindowFullscreen(m_Window, false))
         return false;

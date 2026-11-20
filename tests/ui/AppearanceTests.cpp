@@ -1,4 +1,5 @@
 #include "tests/ui/UiTests.h"
+#include "tests/ResourceFiles.h"
 #include "core/level/SetupCommands.h"
 #include "core/level/LevelCommands.h"
 #include "core/graph/TopologyCommands.h"
@@ -1064,8 +1065,7 @@ void CloseOutputDialogs(ImGuiTestContext *ctx, const OutputDialogObjects &object
     OnMainThread(ctx, [] { App().State().History().SetLimit(50); });
 }
 struct OutputDialogFiles {
-    std::filesystem::path root = std::filesystem::temp_directory_path() /
-        ("appearance-output-" + std::to_string(SDL_GetTicksNS()));
+    std::filesystem::path root = vdevtest::LongPathTestRoot("appearance-output-");
     OutputDialogFiles() { std::filesystem::create_directory(root); }
     ~OutputDialogFiles() { std::error_code error; std::filesystem::remove_all(root, error); }
     std::filesystem::path Long(const char *name, int components = 6) const {
@@ -1239,7 +1239,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             error.find("Cannot load font") != std::string::npos);
             IM_CHECK_NO_RET(ImGui::GetIO().FontDefault == active && vdev::DevBitmap(777) == image);
             // Refuse publication after resources have been successfully prepared.
-            const char *name = std::getenv("NEMODEV_APPEARANCE_PROFILE");
+            const char *name = SDL_getenv("NEMODEV_APPEARANCE_PROFILE");
             IM_CHECK_NO_RET(name);
             const auto path = std::filesystem::u8path(name),
                        backup = std::filesystem::u8path(std::string(name) + ".retained");

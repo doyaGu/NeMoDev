@@ -133,7 +133,7 @@ class ResourceSample {
     std::string library, graphs, first, second;
     explicit ResourceSample(bool longPaths = false) {
         namespace fs = std::filesystem;
-        root = vdevtest::ResourceTestRoot("resource-workspace-");
+        root = vdevtest::LongPathTestRoot("resource-workspace-");
         fs::create_directories(root);
         auto directory = root;
         if (longPaths)
@@ -142,7 +142,7 @@ class ResourceSample {
         library = (directory / "Library.rsc").u8string();
         std::string error;
         if (!vdev::CreateDataResource(library, &error)) throw std::runtime_error(error);
-        graphs = (directory / "Library/Behavior Graphs").u8string();
+        graphs = (directory / "Library" / "Behavior Graphs").u8string();
         first = (fs::u8path(graphs) / "One.nms").u8string();
         second = (fs::u8path(graphs) / "Two.nms").u8string();
         std::ofstream(fs::u8path(first)) << "Description fixture";

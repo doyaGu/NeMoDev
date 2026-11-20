@@ -4,7 +4,7 @@
 #include <string>
 
 namespace vdevtest {
-inline std::filesystem::path ResourceTestRoot(const char *prefix) {
+inline std::filesystem::path LongPathTestRoot(const char *prefix) {
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /
                 (std::string(prefix) + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

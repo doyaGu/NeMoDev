@@ -223,7 +223,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     profile->TestFunc = [](ImGuiTestContext *ctx) {
         ctx->Yield(8);
         OnMainThread(ctx, [&] {
-            const auto option = [](const char *key) { const auto *value = std::getenv(key); return std::string(value ? value : ""); };
+            const auto option = [](const char *key) { const auto *value = SDL_getenv(key); return std::string(value ? value : ""); };
             auto &workspace = App().WorkspaceForTests();
             auto &editor = workspace.Application();
             const vdev::EditorClient client(editor.Host(), 0);

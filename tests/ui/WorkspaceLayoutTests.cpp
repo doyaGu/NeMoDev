@@ -62,7 +62,7 @@ std::string Phase() {
     return value ? value : "";
 }
 std::filesystem::path Root() {
-    const char *value = std::getenv("NEMODEV_FINISH_ROOT");
+    const char *value = SDL_getenv("NEMODEV_FINISH_ROOT");
     return std::filesystem::u8path(value ? value : "");
 }
 void Drain(ImGuiTestContext *ctx) {
@@ -477,7 +477,7 @@ void RegisterWorkspaceLayoutTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         const auto phase = Phase();
         const auto root = Root();
-        const auto cmo = root / "中文 scene.cmo", nmo = root / "--runtime.nmo";
+        const auto cmo = root / std::filesystem::u8path(u8"中文 scene.cmo"), nmo = root / "--runtime.nmo";
         if (phase == "files-save") {
             OnMainThread(ctx, [&] {
                 auto &doc = *App().State().document;

@@ -674,7 +674,8 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(4);
         ctx->MenuClick("//##MainMenuBar/File/Save Version");
-        ctx->Yield(4);
+        OnMainThread(ctx, [] {}); // Wait for the save and its report.
+        IM_CHECK(fs::exists(root / "source_01.cmo"));
         ctx->ItemClick("//Save report/OK");
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(vdev::CreateLayoutObject(*App().State().document, vdev::LayoutObject::Frame3D).ok);
@@ -683,7 +684,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(3);
         ctx->ItemClick("//Unsaved changes/Save");
-        ctx->Yield(4);
+        OnMainThread(ctx, [] {});
         IM_CHECK(Read<bool>(ctx, [] {
             const auto &state = App().State();
             return !App().ShouldQuit() && state.document->Dirty() &&
@@ -692,7 +693,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] { *enabled = false; });
         ctx->ItemClick("//Save report/OK");
         ctx->MenuClick("//##MainMenuBar/File/Save Composition");
-        ctx->Yield(4);
+        OnMainThread(ctx, [] {});
         IM_CHECK(Read<bool>(ctx, [] { return !App().ShouldQuit() && !App().State().document->Dirty(); }));
         ctx->ItemClick("//Save report/OK");
         ctx->MenuClick("//##MainMenuBar/File/New Composition");
