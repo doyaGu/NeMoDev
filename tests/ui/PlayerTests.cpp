@@ -144,7 +144,18 @@ struct Session {
     }
     void StealFocus(std::atomic<bool> *acquired = nullptr) {
         OnMainThread(ctx, [&] {
-            if (other) { SDL_ShowWindow(other); SDL_RaiseWindow(other); }
+            if (other) {
+                IM_CHECK_NO_RET(SDL_ShowWindow(other));
+                // A Wayland toplevel is only mapped once it submits a buffer.
+                if (const char *driver = SDL_GetCurrentVideoDriver(); driver && std::strcmp(driver, "wayland") == 0) {
+                    auto *surface = SDL_GetWindowSurface(other);
+                    IM_CHECK_NO_RET(surface);
+                    if (surface)
+                        IM_CHECK_NO_RET(SDL_FillSurfaceRect(surface, nullptr, SDL_MapSurfaceRGB(surface, 48, 64, 80)) &&
+                                        SDL_UpdateWindowSurface(other));
+                }
+                SDL_RaiseWindow(other);
+            }
             // A stale SDL focus flag can suppress a repeated focus-gained event
             // after minimization. Record the actual native transfer as well.
             if (acquired && NativeFocus(other)) *acquired = true;

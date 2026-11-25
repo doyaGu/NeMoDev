@@ -25,6 +25,11 @@ SDL_Window *MakeWindow(int width, int height) {
     return SDL_CreateWindow("3D Layout", width, height, SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 }
 
+bool UsesVideoDriver(const char *name) {
+    const char *driver = SDL_GetCurrentVideoDriver();
+    return driver && std::strcmp(driver, name) == 0;
+}
+
 bool SuppressWindowActivation(SDL_Window *window) {
     if (SDL_SetWindowFocusable(window, false))
         return true;
@@ -641,14 +646,20 @@ bool LayoutView::GoFullScreen(int driver, const VxDisplayMode &mode) {
     // The SDL rasterizer renders to a caller-owned window. CK's fullscreen
     // render context does not change that window's desktop mode.
     bool windowReady = true;
-#ifdef _WIN32
-    // Win32 keeps an iconic window minimized when shown, and SDL's Win32
-    // backend skips the native restore once the window is fullscreen.
-    if (SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED) {
-        windowReady = SDL_ShowWindow(m_Window) && SDL_RestoreWindow(m_Window) && SDL_SyncWindow(m_Window) &&
-                      !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED);
+    const SDL_WindowFlags flags = SDL_GetWindowFlags(m_Window);
+    if (flags & SDL_WINDOW_MINIMIZED) {
+        const bool x11 = UsesVideoDriver("x11");
+        // SDL remembers minimization when hiding a window. Discard the pending
+        // request before mapping the toplevel again on X11 or Wayland.
+        if ((flags & SDL_WINDOW_HIDDEN) && (x11 || UsesVideoDriver("wayland")))
+            windowReady = SDL_RestoreWindow(m_Window);
+        // Win32 and X11 can keep an iconic window minimized after a request
+        // to enter fullscreen. Verify restoration while it is still windowed.
+        if (windowReady && (UsesVideoDriver("windows") || x11)) {
+            windowReady = SDL_ShowWindow(m_Window) && SDL_RestoreWindow(m_Window) && SDL_SyncWindow(m_Window) &&
+                          !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED);
+        }
     }
-#endif
     SDL_DisplayMode displayMode{};
     const SDL_DisplayID display = SDL_GetDisplayForWindow(m_Window);
     const bool switched = windowReady && SDL_GetClosestFullscreenDisplayMode(display, mode.Width, mode.Height,
@@ -689,6 +700,9 @@ bool LayoutView::StopFullScreen() {
     // The render window is about to be hidden, so it must not regain focus
     // while the window manager restores its windowed decorations. Otherwise
     // hiding it can give the editor focus instead of the user's foreground app.
+    // The Wayland compositor manages toplevel activation. SDL only supports
+    // changing focusability for popup menus on that backend.
+    const bool suppressActivation = !UsesVideoDriver("wayland");
     struct Focusability {
         SDL_Window *window;
         bool restore;
@@ -696,7 +710,7 @@ bool LayoutView::StopFullScreen() {
             if (restore)
                 SDL_SetWindowFocusable(window, true);
         }
-    } focus{m_Window, !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_NOT_FOCUSABLE)};
+    } focus{m_Window, suppressActivation && !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_NOT_FOCUSABLE)};
     if (focus.restore && !SuppressWindowActivation(m_Window))
         return false;
     if (!SDL_SetWindowFullscreen(m_Window, false))

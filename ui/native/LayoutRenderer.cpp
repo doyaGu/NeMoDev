@@ -6,8 +6,35 @@
 #include "ui/layout/LayoutWindows.h"
 #include "ui/schematic/Snapshots.h"
 #include <algorithm>
+#include <cstring>
+#ifdef VIRTOOLSDEV_HAVE_X11
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#endif
 
 namespace vdev {
+#ifdef VIRTOOLSDEV_HAVE_X11
+namespace {
+void SetX11InitialActivation(SDL_Window *window, bool activate) {
+    const auto props = SDL_GetWindowProperties(window);
+    auto *display = static_cast<Display *>(SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr));
+    const auto id = static_cast<::Window>(SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
+    if (!display || !id)
+        return;
+    const Atom userTime = XInternAtom(display, "_NET_WM_USER_TIME", False);
+    if (activate) {
+        XDeleteProperty(display, id, userTime);
+        return;
+    }
+    // EWMH reserves zero for a toplevel that should be mapped without
+    // activation. SDL will replace it when the user next interacts with it.
+    const unsigned long noActivation = 0;
+    XChangeProperty(display, id, userTime, XA_CARDINAL, 32, PropModeReplace,
+                    reinterpret_cast<const unsigned char *>(&noActivation), 1);
+}
+} // namespace
+#endif
+
 LayoutWindow::LayoutWindow(CkRuntimeHost &runtime, ParameterCopies &copies, EditorApplication &editor)
     : m_ParameterCopies(copies), m_CommandEditor(editor), m_EditorHost(editor.Host()), m_View(std::make_unique<LayoutView>(runtime)), m_Interface(std::make_unique<LayoutInterfaceData>()) {}
 
@@ -217,7 +244,11 @@ bool LayoutWindow::EnterFullScreen(const LayoutScreenMode &mode, std::string &er
     nativeMode.Bpp = mode.bitsPerPixel;
     nativeMode.RefreshRate = mode.refreshRate;
     const bool full = m_View->GoFullScreen(mode.driver, nativeMode);
-    if (full && m_MainWindow && !(SDL_GetWindowFlags(m_MainWindow) & SDL_WINDOW_HIDDEN))
+    const char *driver = SDL_GetCurrentVideoDriver();
+    // Wayland's compositor can activate a newly mapped toplevel. Keep the
+    // editor mapped so returning from fullscreen does not request activation.
+    const bool hideEditor = !driver || std::strcmp(driver, "wayland") != 0;
+    if (full && hideEditor && m_MainWindow && !(SDL_GetWindowFlags(m_MainWindow) & SDL_WINDOW_HIDDEN))
         m_MainHiddenForFullScreen = SDL_HideWindow(m_MainWindow);
     m_Switching = false;
     SelectViewportContext();
@@ -252,9 +283,23 @@ bool LayoutWindow::ExitFullScreen(bool activateEditor, std::string &error) {
         const char *hint = SDL_GetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN);
         const bool hadHint = hint != nullptr;
         const std::string previous = hint ? hint : "";
+        const char *driver = SDL_GetCurrentVideoDriver();
+        const bool x11 = driver && std::strcmp(driver, "x11") == 0;
+        const bool restoreFocusability = !activateEditor && x11 &&
+                                         !(SDL_GetWindowFlags(m_MainWindow) & SDL_WINDOW_NOT_FOCUSABLE);
         if (!activateEditor)
             SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+#ifdef VIRTOOLSDEV_HAVE_X11
+        if (x11)
+            SetX11InitialActivation(m_MainWindow, activateEditor);
+#endif
+        if (restoreFocusability)
+            SDL_SetWindowFocusable(m_MainWindow, false);
         SDL_ShowWindow(m_MainWindow);
+        if (restoreFocusability) {
+            SDL_SyncWindow(m_MainWindow);
+            SDL_SetWindowFocusable(m_MainWindow, true);
+        }
         if (!activateEditor) {
             if (hadHint)
                 SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, previous.c_str());
