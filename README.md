@@ -79,7 +79,7 @@ You will need:
 - **Shared SDL3 3.4.20+**, installed with its CMake package. See SDL's
   [build instructions](https://wiki.libsdl.org/SDL3/README-cmake).
 - **Python 3.8+ and Pillow 9.1+** for compiling image resources.
-- **NeMo2's public `main` branch**, with its submodules initialized.
+- **NeMo2's `sdl` branch**, with its submodules initialized.
 
 Linux also needs the GTK3 Unix Print, GIO and libharu development packages:
 
@@ -111,7 +111,7 @@ checkout, selected explicitly at configure time; there is no default SDK path.
 An existing local checkout can be used directly. To prepare a new one:
 
 ```sh
-git clone --recurse-submodules https://github.com/doyaGu/NeMo2.git "<NeMo2 checkout>"
+git clone --branch sdl --recurse-submodules https://github.com/doyaGu/NeMo2.git "<NeMo2 checkout>"
 ```
 
 NeMoDev builds the SDK libraries, managers, readers and Building Blocks from
@@ -293,7 +293,7 @@ ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
 ### Continuous integration
 
 [CI](https://github.com/doyaGu/NeMoDev/actions/workflows/ci.yml) builds the
-editor against NeMo2 mainline on Windows, Linux and macOS ARM64. It runs the
+editor against NeMo2's `sdl` branch on Windows, Linux and macOS ARM64. It runs the
 self-contained regressions, checks installed runtime dependencies and verifies
 that the production package contains no test code. Linux also runs the
 self-contained UI groups through Xvfb and software Vulkan. The standalone
